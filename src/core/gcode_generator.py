@@ -24,14 +24,15 @@ class GcodeGenerator:
         end_point.y = radius * sin(radians(end_angle)) + center.y
         i = center.x - start_point.x
         j = center.y - start_point.y
-        command = 'G3' if is_ccw(start_angle, end_angle) else 'G2'
+        command = 3 if is_ccw(start_angle, end_angle) else 2
         command_data = {
-            'command': command,
+            'command': 'G2-3',
             'param': {
                 'start': start_point,
                 'end': end_point,
                 'i': i,
-                'j': j
+                'j': j,
+                'value': command
             }
         }
         self.entity_list.append(command_data)
