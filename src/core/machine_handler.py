@@ -24,7 +24,7 @@ class MachineHandler:
     def _generate_gcode (self, entity_list,file_name):
         f = open(file_name, "w")
         for i in range(0,self.layers):
-            f.write(f'Layer {i}'\n)
+            f.write(f'Layer {i}\n')
             self.z = self.layer_thick * i
             for command in entity_list: 
                 if (command['command'] == 'G1'):
@@ -34,4 +34,3 @@ class MachineHandler:
             #Agregar algún lógica necesaria para el final de cada layer.
             f.write(self.g_code)        
         #Agregar lógica para final de archivo, apagar motores o cosas por el estilo.
-        
