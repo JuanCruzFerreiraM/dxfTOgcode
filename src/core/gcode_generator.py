@@ -1,6 +1,6 @@
 from ezdxf.math import Vec3
 from math import sin, cos, radians, atan
-from src.utils.geometry import is_ccw
+from src.utils.geometry import is_ccw, bulge_to_center
 class GcodeGenerator:
     def __init__ (self):
         self.entity_list = []
@@ -37,5 +37,65 @@ class GcodeGenerator:
         }
         self.entity_list.append(command_data)
     
-    def lwpolyline_entity(self,): #is for lwpolyline. Conciderar si es necesario considerar el ancho.
-        
+    def lwpolyline_entity(self, point_list): #is for lwpolyline. Conciderar si es necesario considerar el ancho.
+        #pensar en refactoring para mejorar legibilidad 
+        prev_point = Vec3(0,0,0)
+        if (point_list.close):
+            initial_point = point_list[0]
+        prev_point = point_list[0]
+        bulge = point_list[0].bulge
+        for actual_point in point_list[1:]:
+            if (bulge == 0):
+                command_data = {
+                    'command': 'G1',
+                    'param': {
+                        'start': prev_point,
+                        'end': actual_point
+                    }
+                }
+                self.entity_list.append(command_data)
+            else: 
+                center = bulge_to_center(actual_point, prev_point, bulge)
+                i = center.x - prev_point.x
+                j = center.y - prev_point.y
+                command = 3 if bulge > 0 else 2
+                command_data = {
+                    'command': 'G2-3',
+                    'param': {
+                        'start': prev_point,
+                        'end': actual_point,
+                        'i': i,
+                        'j': j,
+                        'value': command
+                     }
+                }
+                self.entity_list.append(command_data)
+            prev_point = actual_point
+            bulge = actual_point.bulge        
+        if (point_list.close):
+            actual_point = initial_point
+            if (bulge == 0):
+                command_data = {
+                    'command': 'G1',
+                    'param': {
+                        'start': prev_point,
+                        'end': actual_point
+                    }
+                }
+                self.entity_list.append(command_data)
+            else: 
+                center = bulge_to_center(actual_point, prev_point, bulge)
+                i = center.x - prev_point.x
+                j = center.y - prev_point.y
+                command = 3 if bulge > 0 else 2
+                command_data = {
+                    'command': 'G2-3',
+                    'param': {
+                        'start': prev_point,
+                        'end': actual_point,
+                        'i': i,
+                        'j': j,
+                        'value': command
+                     }
+                }
+                self.entity_list.append(command_data)
