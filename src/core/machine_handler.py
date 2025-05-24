@@ -21,7 +21,7 @@ class MachineHandler:
         self.g_code += f'G{value} X{end_p.x} Y{end_p.y} Z{self.z} I{i} J{j} F{self.f} \n' #faltaría lógica para E
         self.x, self.y = end_p.x, end_p.y
     
-    def _generate_gcode (self, entity_list,file_name):
+    def generate_gcode (self, entity_list,file_name):
         f = open(file_name, "w")
         for i in range(0,self.layers):
             f.write(f'Layer {i}\n')
