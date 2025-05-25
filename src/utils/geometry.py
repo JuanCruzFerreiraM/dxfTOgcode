@@ -1,4 +1,5 @@
 import math as m
+from ezdxf.math import Vec3
 
 
 
@@ -12,3 +13,25 @@ def bulge_to_radius (x1,y1,x2,y2,bulge):
 def is_ccw (star_angle, end_angle):
    delta = (end_angle - star_angle) %360
    return delta > 0 and delta < 180
+
+
+
+def bulge_to_center(end_p, start_p, bulge): 
+  xs,ys = start_p.x,start_p.y
+  xe,ye = end_p.x, end_p.y
+  
+  dx = xe - xs
+  dy = ye - ys
+  l = distance(xs,ys,xe,ye)
+  h = (l/2) * bulge
+  
+  mx = (xe + xs) / 2
+  my = (ye + ys) / 2
+   
+  perp_x = -dy/l
+  perp_y = dx/l
+  
+  cx = mx + h * perp_x
+  cy = my + h* perp_y
+  
+  return Vec3(cx,cy,0) 
