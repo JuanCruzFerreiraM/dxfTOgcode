@@ -1,6 +1,7 @@
 class MachineHandler: 
     
     def __init__ (self,x=0,y=0,z=0,f=2500,layers=1,layer_thick=1): #Analizar que otros parámetros de inicio y que valores default
+        self.g_code = ''
         self.x = x
         self.y = y
         self.z = z
@@ -11,14 +12,14 @@ class MachineHandler:
     
     def _linear_move (self, start_p, end_p):
         if not ((self.x == start_p.x) and (self.y == start_p.y)):
-            self.g_code += f'G0 X{start_p.x} Y{start_p.y} Z{self.z} Y{self.y}\n' #We don't have any line between the last point and the actual point
+            self.g_code += f'G0 X{start_p.x} Y{start_p.y} Z{self.z} F{self.f}\n' #We don't have any line between the last point and the actual point
         self.g_code += f'G1 X{end_p.x} Y{end_p.y} Z{self.z} F{self.f}\n' #faltaría agregar lógica para extruder
         self.x, self.y = end_p.x, end_p.y
     
     def _arc_move (self, start_p, end_p, i, j,value): #podríamos agregar lógica para circulo completo con el comando P
         if not ((self.x == start_p.x) and (self.y == start_p.y)):
-            self.g_code += f'G0 X{start_p.x} Y{start_p.y} Z{self.z} Y{self.y}\n' #We don't have any line between the last point and the actual point
-        self.g_code += f'G{value} X{end_p.x} Y{end_p.y} Z{self.z} I{i} J{j} F{self.f} \n' #faltaría lógica para E
+            self.g_code += f'G0 X{start_p.x} Y{start_p.y} Z{self.z} F{self.f}\n' #We don't have any line between the last point and the actual point
+        self.g_code += f'G{value} X{end_p.x} Y{end_p.y} Z{self.z} I{i} J{j} F{self.f}\n' #faltaría lógica para E
         self.x, self.y = end_p.x, end_p.y
     
     def generate_gcode (self, entity_list,file_name):
