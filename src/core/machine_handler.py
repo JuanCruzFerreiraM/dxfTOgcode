@@ -24,6 +24,14 @@ class MachineHandler:
     
     def generate_gcode (self, entity_list,file_name):
         f = open(file_name, "w")
+        f.write('G21    ; Establece las unidades en mm\nG90  ; Establece el modo de pos absoluto\nM107    ; Apaga el ventilador')
+        f.write('G28    ; Home de todos los ejes\nG1 Z0.3   ; Altura de impresión de la primera capa')
+        """
+        De estos analizar si verdaderamente son los valores que quiero o tengo que adaptarlos al convertidor, sobre todo el home de los ejes y eso.
+        Consultar cual es el home. Supongo que alguna esquina de la maquina, pero cual esquina, una opción es parametrizar y trabajar con la que sea mas
+        cómoda para el caso que seleccione.
+        """
+
         for i in range(0,self.layers):
             f.write(f'Layer {i}\n')
             self.z = self.layer_thick * i
