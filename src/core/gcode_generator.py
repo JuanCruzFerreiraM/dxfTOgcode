@@ -16,12 +16,13 @@ class GcodeGenerator:
         self.entity_list.append(command_data)
         
     def arc_entity(self,center, radius, start_angle, end_angle):
-        start_point = Vec3(0,0,0)
-        end_point = Vec3(0,0,0)
-        start_point.x = radius * cos(radians(start_angle)) + center.x
-        start_point.y = radius * cos(radians(start_angle)) + center.y
-        end_point.x = radius * sin(radians(end_angle)) + center.x
-        end_point.y = radius * sin(radians(end_angle)) + center.y
+        sx= radius * round(cos(radians(start_angle))) + center.x
+        sy = radius * round(sin(radians(start_angle))) + center.y
+        ex = radius * round(cos(radians(end_angle))) + center.x
+        ey = radius * round(sin(radians(end_angle))) + center.y
+        print(f'end_angle = {end_angle} radians = {radians(end_angle)} cos={cos(radians(end_angle))}')
+        start_point = Vec3(sx,sy,0)
+        end_point = Vec3(ex,ey,0)
         i = center.x - start_point.x
         j = center.y - start_point.y
         command = 3 if is_ccw(start_angle, end_angle) else 2
