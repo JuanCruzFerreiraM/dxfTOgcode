@@ -5,7 +5,7 @@ from src.utils.graph import traversal_order
 class GcodeGenerator:
     def __init__ (self):
         self.entity_list = []
-    
+
     def line_entity(self, start_point, end_point):
         command_data = {
             'command': 'G1',
@@ -112,6 +112,11 @@ class GcodeGenerator:
                      }
                 }
                 self.entity_list.append(command_data)
+
+    def adjust_to_reference(self): #Por ahora retorna la esquina inferior izquierda, pero se puede parametrizar para elegir un punto según la maquina
+        reference = min(self.entity_list,key=lambda e: (e['param']['start'].x, e['param']['start'].y))
+        for entity in self.entity_list:
+            entity['param']['start'] = entity['param']['start'] - reference
 
     def order_entity_list(self):
         order_entity_list = []
