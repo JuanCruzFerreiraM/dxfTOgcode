@@ -28,6 +28,7 @@ def test_line_entity():
 
 
 def test_arc_entity():
+    #Principal problema cae en el redondeo a cero   
     gcode = GcodeGenerator()
     result = []
     center = Vec3(0,0,0)

@@ -1,6 +1,7 @@
 from ezdxf.math import Vec3
 from math import sin, cos, radians, atan
 from src.utils.geometry import is_ccw, bulge_to_center
+from src.utils.graph import traversal_order
 class GcodeGenerator:
     def __init__ (self):
         self.entity_list = []
@@ -16,11 +17,22 @@ class GcodeGenerator:
         self.entity_list.append(command_data)
         
     def arc_entity(self,center, radius, start_angle, end_angle):
-        sx= radius * round(cos(radians(start_angle))) + center.x
-        sy = radius * round(sin(radians(start_angle))) + center.y
-        ex = radius * round(cos(radians(end_angle))) + center.x
-        ey = radius * round(sin(radians(end_angle))) + center.y
-        print(f'end_angle = {end_angle} radians = {radians(end_angle)} cos={cos(radians(end_angle))}')
+        #Problema con el redondeo a cero, da un valor con e-16 en los casos en los que cos(alpha) ~= 0
+        sx= radius * cos(radians(start_angle)) + center.x
+        sy = radius * sin(radians(start_angle)) + center.y
+        ex = radius * cos(radians(end_angle)) + center.x
+        ey = radius * sin(radians(end_angle)) + center.y
+        #No tan optimo tantos if ? pensar otra forma
+        if (sx < 0.001): 
+            sx = round(sx)
+        if (sy < 0.001): 
+            sy = round(sy)
+        if (ex < 0.001): 
+            ex = round(ex)
+        if (ey < 0.001): 
+           ey = round(ey)
+            
+        print(f'end_angle = {end_angle} radians = {radians(end_angle)} cos={cos(radians(end_angle))} sx={sx}')
         start_point = Vec3(sx,sy,0)
         end_point = Vec3(ex,ey,0)
         i = center.x - start_point.x
@@ -100,3 +112,11 @@ class GcodeGenerator:
                      }
                 }
                 self.entity_list.append(command_data)
+
+    def order_entity_list(self):
+        order_entity_list = []
+        order_point_list = traversal_order(self.entity_list)
+        pos = {p: i for i, p in enumerate(order_point_list)}
+        order_entity_list = sorted(self.entity_list, key = lambda d: pos[d['params']['start']])
+        return order_entity_list
+            
