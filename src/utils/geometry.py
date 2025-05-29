@@ -3,7 +3,7 @@ from ezdxf.math import Vec3
 
 
 
-def distance (x1,y1,x2,y2):
+def distance (x1,y1,x2,y2): #modificar para determinar distancia en movimientos en arco
    return m.sqrt((x2-x1)**2+ (y2-y1)**2)
 
 def bulge_to_radius (x1,y1,x2,y2,bulge):
@@ -35,3 +35,11 @@ def bulge_to_center(end_p, start_p, bulge):
   cy = my + h* perp_y
   
   return Vec3(cx,cy,0) 
+
+def center_of_shape(points_list):
+   n = len(points_list)
+   x = sum(p.x for p in point_list) / n 
+   y = sum(p.y for p in point_list) / n
+   return Vec3(x,y,0)
+   
+   
