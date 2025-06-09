@@ -6,17 +6,18 @@ class GcodeGenerator:
     def __init__ (self):
         self.entity_list = []
 
-    def line_entity(self, start_point, end_point):
+    def line_entity(self, start_point, end_point, layer):
         command_data = {
             'command': 'G1',
             'param': {
                 'start': start_point,
-                'end': end_point
+                'end': end_point,
+                'layer': layer
             }
         }
         self.entity_list.append(command_data)
         
-    def arc_entity(self,center, radius, start_angle, end_angle):
+    def arc_entity(self,center, radius, start_angle, end_angle, layer):
         #Problema con el redondeo a cero, da un valor con e-16 en los casos en los que cos(alpha) ~= 0
         sx= radius * cos(radians(start_angle)) + center.x
         sy = radius * sin(radians(start_angle)) + center.y
@@ -45,12 +46,13 @@ class GcodeGenerator:
                 'end': end_point,
                 'i': i,
                 'j': j,
-                'value': command
+                'value': command,
+                'layer': layer
             }
         }
         self.entity_list.append(command_data)
     
-    def lwpolyline_entity(self, point_list): #is for lwpolyline. Conciderar si es necesario considerar el ancho.
+    def lwpolyline_entity(self, point_list): #Agregar manejo de layers
         #pensar en refactoring para mejorar legibilidad 
         prev_point = Vec3(0,0,0)
         if (point_list.close):

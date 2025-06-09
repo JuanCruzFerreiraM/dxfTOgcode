@@ -8,7 +8,7 @@ def generate_graph(entity_list):
         p1 = value['param']['start']
         p2 = value['param']['end']
         d = distance(p1.x,p1.y,p2.x,p2.y)
-        graph.add_edge(p1,p2,weight = d)
+        graph.add_edge(p1,p2, tipo = value['param']['layer'])
     list_components = list(nx.weakly_connected_components(graph))
     return [graph.subgraph(c).copy() for c in list_components]
 
@@ -40,9 +40,10 @@ def dfs(sg,start,center):
             order.append(node)
         
         neighbors = list(sg.neighbors(node))
-        neighbors.sort(key = lambda v: distance(v.x,v.y,center.x,center.y), reverse=True)
+        neighbors.sort(key=lambda v: sg[node][v].get('tipo', '') == 'relleno')
+
         
-        for neighbor in neighbors:
+        for neighbor in reversed(neighbors):
             if neighbor  not in  visited:
                 stack.append(neighbor)
     
