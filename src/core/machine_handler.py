@@ -34,12 +34,12 @@ class MachineHandler:
 
         for i in range(0,self.layers):
             f.write(f'Layer {i}\n')
-            self.z = self.layer_thick * i
+            self.z = self.layers_thick * i
             for command in entity_list: 
                 if (command['command'] == 'G1'):
-                    self._linear_move(self,command['param']['start'],command['param']['end'])
+                    self._linear_move(command['param']['start'],command['param']['end'])
                 elif (command['command'] == 'G2-3'):
-                    self._arc_move(self,command['param']['start'],command['param']['end'],command['param']['i'],command['param']['j'],command['param']['value'])
+                    self._arc_move(command['param']['start'],command['param']['end'],command['param']['i'],command['param']['j'],command['param']['value'])
             #Agregar algún lógica necesaria para el final de cada layer.
             f.write(self.g_code)        
         #Agregar lógica para final de archivo, apagar motores o cosas por el estilo.

@@ -51,3 +51,7 @@ yarn-error.log
 *.gcode
 *.nc
 *.tap
+
+#Específicos 
+outputs/
+src/utils/generate_dxf.py
