@@ -13,8 +13,6 @@ class GcodeGenerator:
                 'start': start_point,
                 'end': end_point,
                 'layer': layer,
-                'from': z_start,
-                'to': z_end
             }
         }
         self.entity_list.append(command_data)
@@ -49,9 +47,7 @@ class GcodeGenerator:
                 'i': i,
                 'j': j,
                 'value': command,
-                'layer': layer,
-                'from': z_start,
-                'to': z_end
+                'layer': layer
             }
         }
         self.entity_list.append(command_data)
