@@ -6,18 +6,20 @@ class GcodeGenerator:
     def __init__ (self):
         self.entity_list = []
 
-    def line_entity(self, start_point, end_point, layer):
+    def line_entity(self, start_point, end_point, layer, z_start = -1, z_end = -1):
         command_data = {
             'command': 'G1',
             'param': {
                 'start': start_point,
                 'end': end_point,
-                'layer': layer
+                'layer': layer,
+                'from': z_start,
+                'to': z_end
             }
         }
         self.entity_list.append(command_data)
         
-    def arc_entity(self,center, radius, start_angle, end_angle, layer):
+    def arc_entity(self,center, radius, start_angle, end_angle, layer, z_start = -1, z_end = -1):
         #Problema con el redondeo a cero, da un valor con e-16 en los casos en los que cos(alpha) ~= 0
         sx= radius * cos(radians(start_angle)) + center.x
         sy = radius * sin(radians(start_angle)) + center.y
@@ -47,7 +49,9 @@ class GcodeGenerator:
                 'i': i,
                 'j': j,
                 'value': command,
-                'layer': layer
+                'layer': layer,
+                'from': z_start,
+                'to': z_end
             }
         }
         self.entity_list.append(command_data)
