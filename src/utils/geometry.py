@@ -38,8 +38,8 @@ def bulge_to_center(end_p, start_p, bulge):
 
 def center_of_shape(points_list):
    n = len(points_list)
-   x = sum(p.x for p in point_list) / n 
-   y = sum(p.y for p in point_list) / n
+   x = sum(p.x for p in points_list) / n 
+   y = sum(p.y for p in points_list) / n
    return Vec3(x,y,0)
    
    

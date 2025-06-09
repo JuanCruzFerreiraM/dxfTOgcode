@@ -2,12 +2,12 @@ import networkx as nx
 from src.utils.geometry import distance, center_of_shape
 from ezdxf.math import Vec3
 
-def generate_graph(list):
+def generate_graph(entity_list):
     graph = nx.DiGraph()
-    for value in list:
+    for value in entity_list:
         p1 = value['param']['start']
         p2 = value['param']['end']
-        d = distance(p1,p2)
+        d = distance(p1.x,p1.y,p2.x,p2.y)
         graph.add_edge(p1,p2,weight = d)
     list_components = list(nx.weakly_connected_components(graph))
     return [graph.subgraph(c).copy() for c in list_components]
@@ -20,6 +20,7 @@ def order_sgs(sgs):
     initial_point = Vec3(0,0,0)
     for sg in sgs:
         if initial_point in sg.nodes:
+            print('Ingreso al main')
             main_graph = sg
         else: 
             other_graphs.append(sg)
@@ -47,14 +48,14 @@ def dfs(sg,start,center):
     
     return order    
 
-def traversal_order(list):
-    sgs = generate_graph(list)
+def traversal_order(entity_list):
+    sgs = generate_graph(entity_list)
     sgs_in_order = order_sgs(sgs)
     final_order = []
     for sg in sgs_in_order:
         if Vec3(0,0,0) in sg.nodes:
             source = Vec3(0,0,0)
         else: 
-            source = list(sg.nodes)[0]        
+            source = min(list(sg.nodes), key=lambda e: (e.x, e.y))    
         final_order += dfs(sg,source,center_of_shape(list(sg.nodes)))
     return final_order

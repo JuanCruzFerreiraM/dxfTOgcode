@@ -114,14 +114,18 @@ class GcodeGenerator:
                 self.entity_list.append(command_data)
 
     def adjust_to_reference(self): #Por ahora retorna la esquina inferior izquierda, pero se puede parametrizar para elegir un punto según la maquina
-        reference = min(self.entity_list,key=lambda e: (e['param']['start'].x, e['param']['start'].y))
+        reference = min(self.entity_list,key=lambda e: (e['param']['start'].x, e['param']['start'].y))['param']['start']
         for entity in self.entity_list:
             entity['param']['start'] = entity['param']['start'] - reference
+            entity['param']['end'] = entity['param']['end'] - reference
+
+           
 
     def order_entity_list(self):
+        self.adjust_to_reference()
         order_entity_list = []
         order_point_list = traversal_order(self.entity_list)
         pos = {p: i for i, p in enumerate(order_point_list)}
-        order_entity_list = sorted(self.entity_list, key = lambda d: pos[d['params']['start']])
+        order_entity_list = sorted(self.entity_list, key = lambda d: pos[d['param']['start']])
         return order_entity_list
             

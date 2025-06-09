@@ -1,8 +1,11 @@
 import ezdxf
 from ezdxf.math import OCS, Matrix44
 from src.core.gcode_generator import GcodeGenerator
+class FileError(Exception):
+    """Excepción personalizada para errores de archivo."""
+    pass
 
-def generate_entity_list(filename): #Estudiar bien el modelo coordenado de dxf para poder entender los cambios necesarios. Sobre todo para diferentes layers
+def generate_entity_list(filename,gcode_generator): #Estudiar bien el modelo coordenado de dxf para poder entender los cambios necesarios. Sobre todo para diferentes layers
     #Etapa 2
     try: 
         doc = ezdxf.readfile(filename)
@@ -12,7 +15,6 @@ def generate_entity_list(filename): #Estudiar bien el modelo coordenado de dxf p
     model_space = doc.modelspace()
     
     for entity in  model_space:
-        gcode_generator = GcodeGenerator()
         if (entity.dxftype() == 'LINE'):
             gcode_generator.line_entity(entity.dxf.start, entity.dxf.end)
         elif (entity.dxftype() == 'ARC'):
