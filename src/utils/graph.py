@@ -33,7 +33,7 @@ def dfs(sg,node,order,visited):
         if node in visited:
             return
         
-        visited.add(node)
+        visited.append(node)
         order.append(node)
         
         neighbors = list(sg.neighbors(node))
@@ -48,10 +48,10 @@ def traversal_order(entity_list):
     sgs_in_order = order_sgs(sgs)
     final_order = []
     for sg in sgs_in_order:
-        visited = set()
+        visited = []
         if Vec3(0,0,0) in sg.nodes:
             source = Vec3(0,0,0)
         else: 
             source = min(list(sg.nodes), key=lambda e: (e.x, e.y))    
-        dfs(sg,source,final_order,source)
+        dfs(sg,source,final_order,visited)
     return final_order
