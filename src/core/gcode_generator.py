@@ -6,18 +6,19 @@ class GcodeGenerator:
     def __init__ (self):
         self.entity_list = []
 
-    def line_entity(self, start_point, end_point, layer):
+    def line_entity(self, start_point, end_point, layer,id):
         command_data = {
             'command': 'G1',
             'param': {
                 'start': start_point,
                 'end': end_point,
                 'layer': layer,
+                'id': id
             }
         }
         self.entity_list.append(command_data)
         
-    def arc_entity(self,center, radius, start_angle, end_angle, layer): #que tan necesario es considerar z
+    def arc_entity(self,center, radius, start_angle, end_angle, layer,id): #que tan necesario es considerar z
         #Problema con el redondeo a cero, da un valor con e-16 en los casos en los que cos(alpha) ~= 0
         sx= radius * cos(radians(start_angle)) + center.x
         sy = radius * sin(radians(start_angle)) + center.y
@@ -47,7 +48,8 @@ class GcodeGenerator:
                 'i': i,
                 'j': j,
                 'value': command,
-                'layer': layer
+                'layer': layer,
+                'id': id
             }
         }
         self.entity_list.append(command_data)
@@ -124,10 +126,11 @@ class GcodeGenerator:
            
 
     def order_entity_list(self):
-        self.adjust_to_reference()
-        order_entity_list = []
-        order_point_list = traversal_order(self.entity_list)
-        pos = {p: i for i, p in enumerate(order_point_list)}
-        order_entity_list = sorted(self.entity_list, key = lambda d: pos[d['param']['start']])
-        return order_entity_list
+        self.adjust_to_reference()  
+        entity_order = traversal_order(self.entity_list)
+    
+        id_to_position = {entity_id: i for i, entity_id in enumerate(entity_order)}
+        ordered_entity_list = sorted(self.entity_list,key=lambda entity: id_to_position.get(entity['param']['id'], float('inf')))
+    
+        return ordered_entity_list
             

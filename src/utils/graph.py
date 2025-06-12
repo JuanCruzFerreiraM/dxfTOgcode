@@ -8,7 +8,7 @@ def generate_graph(entity_list):
         p1 = value['param']['start']
         p2 = value['param']['end']
         d = distance(p1.x,p1.y,p2.x,p2.y)
-        graph.add_edge(p1,p2, tipo = value['param']['layer'])
+        graph.add_edge(p1,p2, tipo = value['param']['layer'], id_entity = value['param']['id'])
     list_components = list(nx.weakly_connected_components(graph))
     return [graph.subgraph(c).copy() for c in list_components]
 
@@ -28,20 +28,22 @@ def order_sgs(sgs):
     return [main_graph] + other_sg_order
                 
             
-def dfs(sg,node,order,visited):
+def dfs(sg, node, order, visited):
+    if node in visited:
+        return
+    
+    visited.append(node)
+    
+    neighbors = list(sg.neighbors(node))
+    neighbors.sort(key=lambda v: sg[node][v].get('tipo', '') == 'relleno')
+    
+    for neighbor in neighbors:
+        edge_data = sg[node][neighbor]
+        entity_id = edge_data.get('id_entity')
+        if entity_id is not None:
+            order.append(entity_id)
+        dfs(sg, neighbor, order, visited)
 
-        if node in visited:
-            return
-        
-        visited.append(node)
-        order.append(node)
-        
-        neighbors = list(sg.neighbors(node))
-        neighbors.sort(key=lambda v: sg[node][v].get('tipo', '') == 'relleno')
-
-        
-        for neighbor in neighbors:
-            dfs(sg,neighbor,visited,order)
 
 def traversal_order(entity_list):
     sgs = generate_graph(entity_list)
