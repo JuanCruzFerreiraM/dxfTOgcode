@@ -11,7 +11,7 @@ def main():
     gcode_generator = GcodeGenerator()
     generate_entity_list(input_filename,gcode_generator)
     entitys = gcode_generator.order_entity_list()
-    machine = MachineHandler()
+    machine = MachineHandler(layers=2)
     machine.generate_gcode(entitys, output_filename)
     
     
