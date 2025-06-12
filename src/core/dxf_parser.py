@@ -13,13 +13,14 @@ def generate_entity_list(filename,gcode_generator): #Estudiar bien el modelo coo
         raise FileError(f'File Error. Please retry. {e}') from e
     
     model_space = doc.modelspace()
+    id_entity = 0
     
     for entity in  model_space:
         if (entity.dxftype() == 'LINE'):
-            gcode_generator.line_entity(entity.dxf.start, entity.dxf.end, entity.dxf.layer)
+            gcode_generator.line_entity(entity.dxf.start, entity.dxf.end, entity.dxf.layer,id_entity)
         elif (entity.dxftype() == 'ARC'):
-            gcode_generator.arc_entity(entity.dxf.center, entity.dxf.radius, entity.dxf.start_angle, entity.dxf.end_angle, entity.dxf.layer)
-        elif (entity.dxftype() == 'LWPOLYLINE'):
-            gcode_generator.lwpolyline_entity(entity)
+            gcode_generator.arc_entity(entity.dxf.center, entity.dxf.radius, entity.dxf.start_angle, entity.dxf.end_angle, entity.dxf.layer,id_entity)
+        #elif (entity.dxftype() == 'LWPOLYLINE'): //Por el momento sin polilineas 
+            #gcode_generator.lwpolyline_entity(entity)
         else: 
             print(f'No support for entity {entity.deftype()}')
