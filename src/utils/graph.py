@@ -45,14 +45,14 @@ def dfs(sg, node, order, visited):
         dfs(sg, neighbor, order, visited)
 
 
-def traversal_order(entity_list):
+def traversal_order(entity_list, initial_point):
     sgs = generate_graph(entity_list)
     sgs_in_order = order_sgs(sgs)
     final_order = []
     for sg in sgs_in_order:
         visited = []
-        if Vec3(0,0,0) in sg.nodes:
-            source = Vec3(0,0,0)
+        if initial_point in sg.nodes:
+            source = initial_point
         else: 
             source = min(list(sg.nodes), key=lambda e: (e.x, e.y))    
         dfs(sg,source,final_order,visited)

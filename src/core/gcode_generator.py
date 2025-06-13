@@ -125,12 +125,14 @@ class GcodeGenerator:
 
            
 
-    def order_entity_list(self):
-        self.adjust_to_reference()  
-        entity_order = traversal_order(self.entity_list)
+    def order_entity_list(self,entity_list, initial_point): 
+        entity_order = traversal_order(entity_list,initial_point)
     
         id_to_position = {entity_id: i for i, entity_id in enumerate(entity_order)}
-        ordered_entity_list = sorted(self.entity_list,key=lambda entity: id_to_position.get(entity['param']['id'], float('inf')))
+        ordered_entity_list = sorted(entity_list,key=lambda entity: id_to_position.get(entity['param']['id'], float('inf')))
     
         return ordered_entity_list
-            
+    
+    def get_entity_list(self):
+        self.adjust_to_reference() 
+        return self.entity_list
