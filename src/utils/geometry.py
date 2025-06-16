@@ -3,8 +3,20 @@ from ezdxf.math import Vec3
 
 
 
-def distance (x1,y1,x2,y2): #modificar para determinar distancia en movimientos en arco
-   return m.sqrt((x2-x1)**2+ (y2-y1)**2)
+def distance(x1, y1, x2, y2):
+    """
+    Calculates the Euclidean distance between two points.
+
+    #### Args:
+    - x1 (float): X-coordinate of the first point.
+    - y1 (float): Y-coordinate of the first point.
+    - x2 (float): X-coordinate of the second point.
+    - y2 (float): Y-coordinate of the second point.
+
+    #### Returns:
+    - float: The Euclidean distance between the two points.
+    """
+    return m.sqrt((x2 - x1)**2 + (y2 - y1)**2)
 
 def bulge_to_radius (x1,y1,x2,y2,bulge):
    theta = 2*m.atan(bulge) #Se considera ya la division por dos que ocurre dentro del seno
@@ -41,5 +53,3 @@ def center_of_shape(points_list):
    x = sum(p.x for p in points_list) / n 
    y = sum(p.y for p in points_list) / n
    return Vec3(x,y,0)
-   
-   

@@ -29,6 +29,19 @@ def order_sgs(sgs):
                 
             
 def dfs(sg, node, order, visited):
+    """
+    Performs a Depth-First Search (DFS) on a subgraph to determine the order of entities.
+
+    #### Args:
+    - sg (networkx.DiGraph): The subgraph to traverse.
+    - node (Vec3): The starting node for the traversal.
+    - order (list): List to store the ordered entity IDs.
+    - visited (list): List to track visited nodes.
+
+    #### Modifies:
+    - order (list): Appends the entity IDs in the traversal order.
+    - visited (list): Updates the list of visited nodes.
+    """
     if node in visited:
         return
     
@@ -46,6 +59,16 @@ def dfs(sg, node, order, visited):
 
 
 def traversal_order(entity_list, initial_point):
+    """
+    Generates the traversal order of entities based on proximity to an initial point.
+
+    #### Args:
+    - entity_list (list): List of entities to be processed.
+    - initial_point (Vec3): The starting point for the traversal.
+
+    #### Returns:
+    - list: Ordered list of entity IDs based on the traversal.
+    """
     sgs = generate_graph(entity_list)
     sgs_in_order = order_sgs(sgs)
     final_order = []
@@ -55,5 +78,5 @@ def traversal_order(entity_list, initial_point):
             source = initial_point
         else: 
             source = min(list(sg.nodes), key=lambda e: (e.x, e.y))    
-        dfs(sg,source,final_order,visited)
+        dfs(sg, source, final_order, visited)
     return final_order

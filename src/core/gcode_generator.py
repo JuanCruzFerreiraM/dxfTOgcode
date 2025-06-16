@@ -12,11 +12,20 @@ class GcodeGenerator:
         self.entity_list = []
 
     def line_entity(self, start_point, end_point, layer, id):
-        # Validar que los puntos no sean None
+        """
+        Generates a G-code command for a straight line entity.
+
+        #### Args:
+        - start_point (Vec3): The initial point of the line.
+        - end_point (Vec3): The end point of the line.
+        - layer (str): The layer where the entity is located.
+        - id (int): Unique identifier for the entity.
+
+        #### Modifies:
+        - self.entity_list (list): Adds the generated G-code command to the list.
+        """
         if start_point is None or end_point is None:
             raise InvalidPointError(f"Invalid point detected: start_point={start_point}, end_point={end_point}")
-        
-        # Validar que las coordenadas no sean None
         if any(coord is None for coord in [start_point.x, start_point.y, start_point.z, end_point.x, end_point.y, end_point.z]):
             raise InvalidPointError(f"Invalid point detected: start_point={start_point}, end_point={end_point}")
         
@@ -32,11 +41,25 @@ class GcodeGenerator:
         self.entity_list.append(command_data)
         
     def arc_entity(self, center, radius, start_angle, end_angle, layer, id):
-        # Validar que el centro no sea None
+        """
+        Generates a G-code command for an arc entity.
+
+        #### Args:
+        - center (Vec3): The center point of the arc.
+        - radius (float): The radius of the arc.
+        - start_angle (float): The starting angle of the arc (in degrees).
+        - end_angle (float): The ending angle of the arc (in degrees).
+        - layer (str): The layer where the entity is located.
+        - id (int): Unique identifier for the entity.
+
+        #### Modifies:
+        - self.entity_list (list): Adds the generated G-code command to the list.
+
+        #### Raises:
+        - InvalidPointError: If the center or calculated points are invalid.
+        """
         if center is None:
             raise InvalidPointError(f"Invalid center detected: center={center}")
-        
-        # Validar que las coordenadas no sean None
         if any(coord is None for coord in [center.x, center.y, center.z, radius, start_angle, end_angle]):
             raise InvalidPointError(f"Invalid center detected: center={center}")
         
@@ -63,21 +86,33 @@ class GcodeGenerator:
         self.entity_list.append(command_data)
     
     
-    def adjust_to_reference(self): #Por ahora retorna la esquina inferior izquierda, pero se puede parametrizar para elegir un punto según la maquina
-        reference = min(self.entity_list,key=lambda e: (e['param']['start'].x, e['param']['start'].y))['param']['start']
+    def adjust_to_reference(self):
+        """
+        Adjusts all entities to a reference point (bottom-left corner).
+
+        #### Modifies:
+        - self.entity_list (list): Updates the start and end points of all entities to be relative to the reference point.
+        """
+        reference = min(self.entity_list, key=lambda e: (e['param']['start'].x, e['param']['start'].y))['param']['start']
         for entity in self.entity_list:
             entity['param']['start'] = entity['param']['start'] - reference
             entity['param']['end'] = entity['param']['end'] - reference
 
            
 
-    def order_entity_list(self,entity_list, initial_point): 
-        entity_order = traversal_order(entity_list,initial_point)
-    
-        id_to_position = {entity_id: i for i, entity_id in enumerate(entity_order)}
-        ordered_entity_list = sorted(entity_list,key=lambda entity: id_to_position.get(entity['param']['id'], float('inf')))
-    
-        return ordered_entity_list
+    def order_entity_list(self, entity_list, initial_point):
+        """
+        Orders the list of entities based on a graph algorithm.
+
+        #### Args:
+        - entity_list (list): List of entities to be ordered.
+        - initial_point (Vec3): The starting point for ordering.
+
+        #### Returns:
+        - list: Ordered list of entities.
+        """
+        ordered_list = traversal_order(entity_list, initial_point)
+        return ordered_list
     
     def get_entity_list(self):
         self.adjust_to_reference() 
