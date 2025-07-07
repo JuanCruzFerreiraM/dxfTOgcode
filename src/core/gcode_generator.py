@@ -108,10 +108,16 @@ class GcodeGenerator:
         - entity_list (list): List of entities to be ordered.
         - initial_point (Vec3): The starting point for ordering.
 
+        #### Modifies:
+        - self.entity_list (list): Updates the internal entity list to follow the order.
+
         #### Returns:
         - list: Ordered list of entities.
         """
-        ordered_list = traversal_order(entity_list, initial_point)
+        ordered_ids = traversal_order(entity_list, initial_point)
+        id_to_entity = {entity['param']['id']: entity for entity in entity_list}
+        ordered_list = [id_to_entity[i] for i in ordered_ids if i in id_to_entity]
+        self.entity_list = ordered_list
         return ordered_list
     
     def get_entity_list(self):
