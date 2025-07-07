@@ -5,6 +5,12 @@ class FileError(Exception):
     """Excepción personalizada para errores de archivo."""
     pass
 
+class UnsupportedEntityError(Exception):
+    """Excepción para entidades DXF no soportadas."""
+    def __init__(self, entity_type):
+        super().__init__(f"Entidad DXF no soportada: {entity_type}")
+        self.entity_type = entity_type
+
 def generate_entity_list(filename, gcode_generator):
     """
     Reads a DXF file and generates a list of entities for G-code generation.
@@ -30,9 +36,9 @@ def generate_entity_list(filename, gcode_generator):
     for entity in model_space:
         if entity.dxftype() == 'LINE':
             gcode_generator.line_entity(entity.dxf.start, entity.dxf.end, entity.dxf.layer, id_entity)
+            id_entity += 1
         elif entity.dxftype() == 'ARC':
             gcode_generator.arc_entity(entity.dxf.center, entity.dxf.radius, entity.dxf.start_angle, entity.dxf.end_angle, entity.dxf.layer, id_entity)
-        # elif entity.dxftype() == 'LWPOLYLINE':  # Not implemented yet
-        #     gcode_generator.lwpolyline_entity(entity)
+            id_entity += 1
         else:
-            print(f'No support for entity {entity.dxftype()}')
+            raise UnsupportedEntityError(entity.dxftype())

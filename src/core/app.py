@@ -1,27 +1,21 @@
 from pathlib import Path
-from src.core.dxf_parser import generate_entity_list
+from src.core.dxf_parser import generate_entity_list, FileError,UnsupportedEntityError
 from src.core.gcode_generator import GcodeGenerator
 from src.core.machine_handler import MachineHandler
 from ezdxf.math import Vec3;
-def main():
-    output_dir = Path("outputs/texts")
-    output_dir.mkdir(parents=True, exist_ok=True)  
-    output_name = input('Ingrese el nombre del archivo g-code\n')
-    output_filename = output_dir / output_name
-    input_filename = input('Ingrese el path completo del archivo que quiere cargar\n')
+
+def dxf_script(path,e,layer_tick, layer_amount, feed_rate, feed_rate_g0):
     gcode_generator = GcodeGenerator()
-    generate_entity_list(input_filename,gcode_generator)
     initial_point = Vec3(0,0,0)
+    try:
+        generate_entity_list(path, gcode_generator)
+    except UnsupportedEntityError as ue:
+        raise RuntimeError(f"Error: el archivo contiene una entidad no soportada ({ue.entity_type}).") from ue
+    except FileError as fe:
+        raise RuntimeError(f"No se pudo leer el archivo DXF:\n{str(fe)}") from fe
     main_list = gcode_generator.get_entity_list()
     entitys = gcode_generator.order_entity_list(main_list,initial_point)
-    machine = MachineHandler()
-    layers = 2 #esto entra por paremetro
-    for i in range(0,2):
-        machine.generate_gcode(entitys, output_filename, i, 2)
-        nextPoint = Vec3(machine.x,machine.y,machine.z) #deberiamos proteger los accesos con get.
-        entitys = gcode_generator.order_entity_list(main_list,nextPoint)
-    
-    
-if __name__ == "__main__":
-    main()    
-    
+    machine = MachineHandler(f = feed_rate, fG0= feed_rate_g0, e=e, layer_thick=layer_tick)
+    for i in range(0,layer_amount):
+        machine.generate_gcode(entitys,i, (layer_amount - 1) * layer_tick)
+    return machine.g_code
