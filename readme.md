@@ -1,18 +1,17 @@
 # Generador de G-Code para Impresoras 3D de Gran Escala
 
-[![Versión](https://img.shields.io/badge/version-0.5.0-blue.svg)](https://github.com/JuanCruzFerreiraM/dxfTOgcode/releases)
+[![Versión](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/JuanCruzFerreiraM/dxfTOgcode/releases)
 ![Build](https://img.shields.io/badge/build-passing-brightgreen)
 [![Licencia](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 ## Módulos actuales
 
 - ✅ Conversor de capas 2D — **completo**
-- ⏳ GUI para conversor 2D — *en desarrollo*
+- ⏳ GUI para conversor 2D — **completo**
 - ⏳ Slicer STL — *pendiente*
 
 ## Roadmap
 
-- `v1.0.0`: GUI para el conversor 2D
 - `v1.5.0`: Slicer funcional para STL
 - `v2.0.0`: GUI completa e integración total
 
