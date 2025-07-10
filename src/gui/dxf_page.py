@@ -3,7 +3,7 @@ QDoubleSpinBox, QSpinBox, QLineEdit, QPushButton, QFileDialog, QMessageBox)
 from PyQt6.QtGui import QIcon
 from PyQt6.QtCore import Qt
 from src.core.app import dxf_script
-from src.core.dxf_parser import FileError, UnsupportedEntityError
+from core.dxf.dxf_parser import FileError, UnsupportedEntityError
 
 class DXFPage (QWidget):
     def __init__(self, parent_stack, parent_preview):

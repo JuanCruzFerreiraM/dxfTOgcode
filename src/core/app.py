@@ -1,5 +1,5 @@
 from pathlib import Path
-from src.core.dxf_parser import generate_entity_list, FileError,UnsupportedEntityError
+from core.dxf.dxf_parser import generate_entity_list, FileError,UnsupportedEntityError
 from src.core.gcode_generator import GcodeGenerator
 from src.core.machine_handler import MachineHandler
 from ezdxf.math import Vec3;
