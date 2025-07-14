@@ -20,13 +20,12 @@ def order_sgs(sgs):
     initial_point = Vec3(0,0,0)
     for sg in sgs:
         if initial_point in sg.nodes:
-            print('Ingreso al main')
             main_graph = sg
         else: 
             other_graphs.append(sg)
     other_sg_order = sorted(other_graphs,key = lambda sg: min_dis_sg(sg,initial_point)) 
     return [main_graph] + other_sg_order
-                
+            
             
 def dfs(sg, node, order, visited):
     """
@@ -48,7 +47,7 @@ def dfs(sg, node, order, visited):
     visited.append(node)
     
     neighbors = list(sg.neighbors(node))
-    neighbors.sort(key=lambda v: sg[node][v].get('tipo', '') == 'relleno')
+    neighbors.sort(key=lambda v: sg[node][v].get('tipo', '') == 'fill')
     
     for neighbor in neighbors:
         edge_data = sg[node][neighbor]

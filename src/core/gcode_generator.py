@@ -114,6 +114,8 @@ class GcodeGenerator:
         #### Returns:
         - list: Ordered list of entities.
         """
+        self.entity_list = entity_list
+        self.adjust_to_reference()  
         ordered_ids = traversal_order(entity_list, initial_point)
         id_to_entity = {entity['param']['id']: entity for entity in entity_list}
         ordered_list = [id_to_entity[i] for i in ordered_ids if i in id_to_entity]
@@ -121,7 +123,7 @@ class GcodeGenerator:
         return ordered_list
     
     def get_entity_list(self):
-        self.adjust_to_reference() 
+         
         return self.entity_list
     
     
