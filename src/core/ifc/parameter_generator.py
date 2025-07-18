@@ -2,6 +2,34 @@ from shapely.affinity import affine_transform
 from shapely.geometry import LineString, MultiLineString
 from ezdxf.math import Vec3
 import numpy as np
+import math
+from shapely.geometry import Polygon
+
+def dominant_edge_direction(polygon: Polygon) -> str:
+    """
+    Determina si el zigzag debe ir en 'x' o 'y' según el borde más largo del polígono.
+    """
+    longest = 0
+    best_angle = 0
+
+    coords = list(polygon.exterior.coords)
+    for i in range(len(coords) - 1):
+        x1, y1 = coords[i]
+        x2, y2 = coords[i + 1]
+        dx = x2 - x1
+        dy = y2 - y1
+        length = math.hypot(dx, dy)
+        if length > longest:
+            longest = length
+            best_angle = math.atan2(dy, dx)
+
+    angle_deg = abs(math.degrees(best_angle)) % 180  # normalizamos entre 0° y 180°
+
+    if 45 <= angle_deg <= 135:
+        return 'y'  # muro más orientado verticalmente
+    else:
+        return 'x'  # muro más orientado horizontalmente
+
 
 
 def generate_vzigzag_fill(polygon, step=0.1, offset=0.0, direction='x'):
@@ -12,11 +40,16 @@ def generate_vzigzag_fill(polygon, step=0.1, offset=0.0, direction='x'):
         polygon = polygon.buffer(0)
 
     if offset > 0:
-        polygon = polygon.buffer(-offset)
+        polygon = polygon.buffer(0)
         if polygon.is_empty:
             return []
 
     minx, miny, maxx, maxy = polygon.bounds
+    minx += offset
+    miny += offset
+    maxx -=offset
+    maxy -=offset
+    
     points = []
     toggle = True
 
@@ -30,6 +63,7 @@ def generate_vzigzag_fill(polygon, step=0.1, offset=0.0, direction='x'):
     elif direction == 'y':
         y = miny
         while y <= maxy:
+            
             x = maxx if toggle else minx
             points.append((x, y))
             toggle = not toggle
@@ -72,15 +106,12 @@ def extract_layer_polygons_with_fill(slices, step=0.1, offset=0.0):
                 else:
                     transformed_polygon = affine_transform(polygon, affine_matrix)
 
-                # Validar y corregir geometría si es necesario
+                # Geom validation 
                 if not transformed_polygon.is_valid:
                     transformed_polygon = transformed_polygon.buffer(0)
 
-                # Determinar dirección del relleno
-                minx, miny, maxx, maxy = transformed_polygon.bounds
-                width = maxx - minx
-                height = maxy - miny
-                direction = 'x' if width >= height else 'y'
+                # Fill direction
+                direction = dominant_edge_direction(transformed_polygon)
 
                 data = {
                     "polygon": transformed_polygon,
@@ -124,7 +155,7 @@ def generate_gcode_from_meshes(generator, sliced_layers, step=0.1, offset=0.0, s
                 generator.line_entity(p1, p2, layer="outline", id=entity_id_counter)
                 entity_id_counter += 1
 
-            # OUTLINE interiores (huecos)
+            # OUTLINE interior 
             for interior in polygon.interiors:
                 coords = list(interior.coords)
                 for i in range(len(coords) - 1):
@@ -133,7 +164,7 @@ def generate_gcode_from_meshes(generator, sliced_layers, step=0.1, offset=0.0, s
                     generator.line_entity(p1, p2, layer="outline", id=entity_id_counter)
                     entity_id_counter += 1
 
-            # RELLENO zigzag
+            # Filling
             fill_lines = section.get("fill_lines", [])
             for line in fill_lines:
                 coords = list(line.coords)

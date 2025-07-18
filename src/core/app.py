@@ -76,19 +76,49 @@ def ifc_script(path, e, layer_tick, feed_rate, feed_rate_g0, offset=0.0, step=0.
     machine = MachineHandler(f=feed_rate, fG0=feed_rate_g0, e=e, layer_thick=layer_tick)
 
     for i, z in enumerate(z_values):
-        print(f"Capa {i} (z = {z})")
         machine.generate_gcode(layer_entities[z], i, (layer_amount - 1) * layer_tick)
-    print(f"[Tiempo] Generación final de G-code: {time.time() - start:.2f} segundos")
+
+    print(f"[Tiempo] Generación completa de G-code: {time.time() - start:.2f} segundos")
 
     return machine.g_code
+
 
 if __name__ == "__main__":
     ifc_path = "src/core/ifc/AC20-FZK-Haus.ifc"
     e_param = 0.05
     layer_thickness = 20
-    feed_rate = 1500
+    feed_rate = 2500
     feed_rate_g0 = 3000
-    offset_fill = 0.01
+    offset_fill = 0.03
+    step_fill = 0.1
+
+    gcode_output = ifc_script(
+        path=ifc_path,
+        e=e_param,
+        layer_tick=layer_thickness,
+        feed_rate=feed_rate,
+        feed_rate_g0=feed_rate_g0,
+        offset=offset_fill,
+        step=step_fill
+    )
+    print("----- G-code generado -----\n")
+
+    output_path = "/home/juan-ferreira/PPS/dxfTOgcode/outputs/text/generated_code.gcode"
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+
+    with open(output_path, "w") as f:
+        f.write(gcode_output)
+
+    print(f"\nArchivo G-code guardado en: {output_path}")
+
+
+if __name__ == "__main__":
+    ifc_path = "src/core/ifc/AC20-FZK-Haus.ifc"
+    e_param = 0.05
+    layer_thickness = 20
+    feed_rate = 2500
+    feed_rate_g0 = 3000
+    offset_fill = 0.03
     step_fill = 0.1
 
     gcode_output = ifc_script(

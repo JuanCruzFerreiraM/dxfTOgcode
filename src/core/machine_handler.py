@@ -103,5 +103,5 @@ class MachineHandler:
         print(f'Time for printing layer {i} = {(dfG1 /(self.f / 1000)) + ( dfG0 / (self.fG0 / 1000))} mins distance = {dfG0 + dfG1}')
         if (self.z == max_height):
             self.g_code += ';End of file'
-            print(f'distancia g0 = {self.disg0} distancia g1 = {self.disg1}')
+            print(f'distancia g0 = {self.disg0} distancia g1 = {self.disg1} TIME G0 = {self.disg0 / self.fG0} TIME G1 = {self.disg1 / self.f}')
             
