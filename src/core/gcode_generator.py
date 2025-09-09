@@ -11,7 +11,7 @@ class GcodeGenerator:
     def __init__ (self):
         self.entity_list = []
 
-    def line_entity(self, start_point, end_point, layer, id):
+    def line_entity(self, start_point, end_point, layer, id, outline_id=-1):
         """
         Generates a G-code command for a straight line entity.
 
@@ -35,7 +35,8 @@ class GcodeGenerator:
                 'start': start_point,
                 'end': end_point,
                 'layer': layer,
-                'id': id
+                'id': id,
+                'outline_id': outline_id
             }
         }
         self.entity_list.append(command_data)

@@ -43,7 +43,7 @@ def hash_entity_list(entity_list):
     raw_str = json.dumps(raw, sort_keys=True)
     return hashlib.md5(raw_str.encode()).hexdigest()
 
-def ifc_script(path, e, layer_tick, feed_rate, feed_rate_g0, offset=0.0, step=0.1):
+def ifc_script(path, e, layer_tick, feed_rate, feed_rate_g0, offset=0.0, step=0.1, r_angle=0,v_angle = 0, radius=0):
     gcode_generator = GcodeGenerator()
     initial_point = Vec3(0, 0, 0)
 
@@ -56,7 +56,7 @@ def ifc_script(path, e, layer_tick, feed_rate, feed_rate_g0, offset=0.0, step=0.
     print(f"[Tiempo] IFC Parser + Slicer: {time.time() - start:.2f} segundos")
 
     start = time.time()
-    generate_gcode_from_meshes(gcode_generator, meshes, step=step, offset=offset, start_id=0)
+    generate_gcode_from_meshes(gcode_generator, meshes, step=step, offset=offset, start_id=0,rotation_angle=r_angle, v_angle=v_angle, radius=radius)
     print(f"[Tiempo] Generate G-code from meshes: {time.time() - start:.2f} segundos")
 
     start = time.time()
@@ -90,8 +90,11 @@ if __name__ == "__main__":
     feed_rate = 2500
     feed_rate_g0 = 3000
     offset_fill = 0.03
-    step_fill = 0.1
-
+    step_fill = 0.05
+    rotation_angle = 0
+    v_angle = 30
+    radius = 0.2
+    
     gcode_output = ifc_script(
         path=ifc_path,
         e=e_param,
@@ -99,7 +102,10 @@ if __name__ == "__main__":
         feed_rate=feed_rate,
         feed_rate_g0=feed_rate_g0,
         offset=offset_fill,
-        step=step_fill
+        step=step_fill,
+        r_angle=rotation_angle,
+        v_angle=v_angle,
+        radius=radius
     )
     print("----- G-code generado -----\n")
 
@@ -112,30 +118,3 @@ if __name__ == "__main__":
     print(f"\nArchivo G-code guardado en: {output_path}")
 
 
-if __name__ == "__main__":
-    ifc_path = "src/core/ifc/AC20-FZK-Haus.ifc"
-    e_param = 0.05
-    layer_thickness = 20
-    feed_rate = 2500
-    feed_rate_g0 = 3000
-    offset_fill = 0.03
-    step_fill = 0.1
-
-    gcode_output = ifc_script(
-        path=ifc_path,
-        e=e_param,
-        layer_tick=layer_thickness,
-        feed_rate=feed_rate,
-        feed_rate_g0=feed_rate_g0,
-        offset=offset_fill,
-        step=step_fill
-    )
-    print("----- G-code generado -----\n")
-    # Guardar el G-code en un archivo .gcode
-    output_path = "/home/juan-ferreira/PPS/dxfTOgcode/outputs/text/generated_code.gcode"
-    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-
-    with open(output_path, "w") as f:
-        f.write(gcode_output)
-
-    print(f"\nArchivo G-code guardado en: {output_path}")

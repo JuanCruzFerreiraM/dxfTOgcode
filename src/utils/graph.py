@@ -1,5 +1,5 @@
 import networkx as nx
-from src.utils.geometry import distance, center_of_shape
+from src.utils.geometry import distance
 from ezdxf.math import Vec3
 
 
@@ -24,36 +24,13 @@ def min_dis_sg(sg, reference_point):
     return min(distance(p.x, p.y, reference_point.x, reference_point.y) for p in sg.nodes)
 
 
-def order_sgs(sgs, initial_point=Vec3(0, 0, 0)):
-    """
-    Ordena subgrafos de contorno para minimizar saltos G0.
-    """
-    ordered = []
-    remaining = sgs.copy()
-
-    start_sg = next((sg for sg in remaining if initial_point in sg.nodes), None)
-    if start_sg is None:
-        start_sg = min(remaining, key=lambda sg: min_dis_sg(sg, initial_point))
-
-    ordered.append(start_sg)
-    remaining.remove(start_sg)
-    current_point = initial_point
-
-    while remaining:
-        closest_sg = min(remaining, key=lambda sg: min_dis_sg(sg, current_point))
-        ordered.append(closest_sg)
-        current_point = min(closest_sg.nodes, key=lambda p: p.distance(current_point))
-        remaining.remove(closest_sg)
-
-    return ordered
-
-
 def dfs(sg, node, order, visited, reverse=False):
     """
     Recorrido DFS con opción de reversa.
+    Devuelve también el último nodo visitado.
     """
     if node in visited:
-        return
+        return node
     visited.append(node)
 
     neighbors = list(sg.neighbors(node))
@@ -61,12 +38,15 @@ def dfs(sg, node, order, visited, reverse=False):
     if reverse:
         neighbors.reverse()
 
+    last_node = node
     for neighbor in neighbors:
         edge_data = sg[node][neighbor]
         entity_id = edge_data.get('id_entity')
         if entity_id is not None:
             order.append(entity_id)
-        dfs(sg, neighbor, order, visited, reverse)
+        last_node = dfs(sg, neighbor, order, visited, reverse)
+
+    return last_node
 
 
 def traversal_order(entity_list, initial_point):
@@ -75,40 +55,37 @@ def traversal_order(entity_list, initial_point):
     """
     final_order = []
 
-    # --- OUTLINE: grafo + DFS optimizado ---
+    # --- OUTLINE: grafo + DFS optimizado paso a paso ---
     outline_graphs = generate_graph(entity_list, tipo='outline')
-    outline_ordered_sgs = order_sgs(outline_graphs, initial_point)
+    remaining_sgs = outline_graphs.copy()
     current_point = initial_point
 
-    for sg in outline_ordered_sgs:
-        visited = []
+    while remaining_sgs:
+        # Elegir el subgrafo más cercano al punto actual
+        idx_min = min(range(len(remaining_sgs)),
+                      key=lambda i: min_dis_sg(remaining_sgs[i], current_point))
+        sg = remaining_sgs.pop(idx_min)
+
+        # Nodo inicial más cercano al punto actual
         source = min(list(sg.nodes), key=lambda p: p.distance(current_point))
 
         # DFS normal
         order_normal = []
-        dfs(sg, source, order_normal, visited.copy(), reverse=False)
-        end_point_normal = source
-        for node in sg.nodes:
-            if sg.has_edge(source, node):
-                end_point_normal = node
-        dist_normal = end_point_normal.distance(current_point) if order_normal else float('inf')
+        last_node_normal = dfs(sg, source, order_normal, [], reverse=False)
+        dist_normal = last_node_normal.distance(current_point) if order_normal else float('inf')
 
         # DFS reverso
         order_reverse = []
-        dfs(sg, source, order_reverse, visited.copy(), reverse=True)
-        end_point_reverse = source
-        for node in sg.nodes:
-            if sg.has_edge(source, node):
-                end_point_reverse = node
-        dist_reverse = end_point_reverse.distance(current_point) if order_reverse else float('inf')
+        last_node_reverse = dfs(sg, source, order_reverse, [], reverse=True)
+        dist_reverse = last_node_reverse.distance(current_point) if order_reverse else float('inf')
 
         # Selección final
         if dist_normal <= dist_reverse:
             final_order.extend(order_normal)
-            current_point = end_point_normal
+            current_point = last_node_normal
         else:
             final_order.extend(order_reverse)
-            current_point = end_point_reverse
+            current_point = last_node_reverse
 
     # --- FILL: directo, sin grafo ni DFS ---
     fill_ids = [

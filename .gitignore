@@ -55,3 +55,4 @@ yarn-error.log
 #Específicos 
 outputs/
 src/utils/generate_dxf.py
+capas_pdf/

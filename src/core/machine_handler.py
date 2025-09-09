@@ -61,7 +61,7 @@ class MachineHandler:
             extruder = f'E{self.e}'    
         if not ((self.x == start_p.x) and (self.y == start_p.y)):
             self.g_code += f'G0 X{start_p.x:.3f} Y{start_p.y:.3f} Z{self.z + 0.5:.3f} F{self.fG0}\n' #We don't have any line between the last point and the actual point
-        self.g_code += f'G{value} X{end_p.x:.3f} Y{end_p.y:3.f} Z{self.z:3f} I{i:.3f} J{j:.3f} F{self.f} {extruder}\n'
+        self.g_code += f'G{value} X{end_p.x:.3f} Y{end_p.y:.3f} Z{self.z:.3f} I{i:.3f} J{j:.3f} F{self.f} {extruder}\n'
         self.x, self.y = end_p.x, end_p.y
     
     def generate_gcode(self, entity_list, i, max_height):
@@ -81,7 +81,6 @@ class MachineHandler:
         #### Writes:
         - file_name: Writes the generated G-code to the specified file.
         """
-        print(len(entity_list))
         if (i == 0):
             self.g_code += 'G21    ; Set units to mm\nG90  ; Set absolute positioning mode\nM107    ; Turn off the fan\n'
             self.g_code += f'G28    ; Home all axes\nG1 Z{self.layers_thick}   ; First layer printing height\n'
@@ -100,7 +99,6 @@ class MachineHandler:
                 self._linear_move(command['param']['start'], command['param']['end'])
             elif (command['command'] == 'G2-3'):
                 self._arc_move(command['param']['start'], command['param']['end'], command['param']['i'], command['param']['j'], command['param']['value'])
-        print(f'Time for printing layer {i} = {(dfG1 /(self.f / 1000)) + ( dfG0 / (self.fG0 / 1000))} mins distance = {dfG0 + dfG1}')
         if (self.z == max_height):
             self.g_code += ';End of file'
             print(f'distancia g0 = {self.disg0} distancia g1 = {self.disg1} TIME G0 = {self.disg0 / self.fG0} TIME G1 = {self.disg1 / self.f}')

@@ -1,17 +1,26 @@
-from shapely.affinity import affine_transform
-from shapely.geometry import LineString, MultiLineString
+# -*- coding: utf-8 -*-
+from shapely.affinity import affine_transform, rotate, translate
+from shapely.geometry import LineString, MultiLineString, Polygon, MultiPolygon
 from ezdxf.math import Vec3
 import numpy as np
 import math
-from shapely.geometry import Polygon
+import matplotlib.pyplot as plt
+from matplotlib.patches import Polygon as MplPolygon
+from matplotlib.collections import PatchCollection
+from src.utils.debug_mpl import plot_polygon_layer_debug
 
-def dominant_edge_direction(polygon: Polygon) -> str:
-    """
-    Determina si el zigzag debe ir en 'x' o 'y' según el borde más largo del polígono.
-    """
-    longest = 0
-    best_angle = 0
+# -----------------------
+# Utilidades geométricas
+# -----------------------
 
+
+def calculate_dominant_angle(polygon: Polygon) -> float:
+    """
+    Calcula el ángulo (en grados, 0° a 180°) del borde más largo del polígono,
+    medido respecto al eje X positivo.
+    """
+    longest = 0.0
+    best_angle = 0.0
     coords = list(polygon.exterior.coords)
     for i in range(len(coords) - 1):
         x1, y1 = coords[i]
@@ -22,77 +31,196 @@ def dominant_edge_direction(polygon: Polygon) -> str:
         if length > longest:
             longest = length
             best_angle = math.atan2(dy, dx)
+    angle_deg = math.degrees(best_angle) % 180
+    return angle_deg
 
-    angle_deg = abs(math.degrees(best_angle)) % 180  # normalizamos entre 0° y 180°
-
-    if 45 <= angle_deg <= 135:
-        return 'y'  # muro más orientado verticalmente
-    else:
-        return 'x'  # muro más orientado horizontalmente
-
-
-
-def generate_vzigzag_fill(polygon, step=0.1, offset=0.0, direction='x'):
+def dominant_edge_direction(polygon: Polygon) -> str:
     """
-    Genera un relleno zigzag tipo VVVVV dentro del polígono, adaptable a dirección X o Y.
+    Determina si el zigzag debe ir en 'x' o 'y' según el borde más largo del polígono.
     """
+    angle_deg = calculate_dominant_angle(polygon)
+    if 45 <= abs(angle_deg) <= 135:
+        return 'y'
+    return 'x'
+
+def detect_arc_shapes (coords):
+    n = len(coords)
+    arc_data = None
+    end_arc_point = None
+    initial_arc_point = None
+    arcs_data = []
+    epsilon = 0.1
+    for i in  range(n): 
+        a = np.array(coords[(i-1) % n])
+        b = np.array(coords[i])
+        c = np.array(coords[(i + 1) % n])
+        vec_ab = b - a
+        vec_bc = c - b
+        cross_product = vec_ab[0]*vec_bc[1] - vec_ab[1]*vec_bc[0]
+        dot_product = np.dot(vec_ab, vec_bc)
+        theta = np.atan2(cross_product, dot_product)
+        k = (2 * np.sin(np.abs(theta)/2)) / np.abs(np.linalg.norm(vec_ab))
+        if (5 * np.pi / 180 < np.abs(theta) < 80 * np.pi/180):
+            print(f'a = {a} b = {b} c = {c} for valid theta = {theta * 180/np.pi} degrees')
+            if (arc_data == None):
+                arc_data = (theta, k)
+                initial_arc_point = a
+            else: 
+                relative_curvature = np.abs(k - arc_data[1]) / arc_data[1]
+                if ((np.sign(theta) == np.sign(arc_data[0])) and (relative_curvature <= epsilon)):
+                    end_arc_point = b
+                    arc_data = (theta, k)
+                else: 
+                    if (end_arc_point is None):
+                        arc_data = (theta, k)
+                        initial_arc_point = a
+                    else: 
+                        arcs_data.append((initial_arc_point,end_arc_point))
+                        arc_data = (theta, k)
+                        initial_arc_point = a
+                        end_arc_point = None
+        else: 
+            if (end_arc_point is not None): 
+                arcs_data.append((initial_arc_point,end_arc_point))
+                arc_data = None
+                end_arc_point = None
+                initial_arc_point = None      
+    if (end_arc_point is not None):
+        arcs_data.append((initial_arc_point,end_arc_point))
+        
+    return arcs_data
+            
+            
+    
+    return #lista de listas que contiene los puntos inicial, final y centro de un arco, ademas del radio 
+
+def _clip_polygon_by_offset(polygon: Polygon, offset: float) -> Polygon:
+ 
+    if offset and offset > 0:
+        clipped = polygon.buffer(-offset)
+        if clipped.is_empty:
+            return polygon
+        return clipped
+    return polygon
+
+
+# -----------------------
+# Generador zigzag single-pass
+# -----------------------
+def generate_vzigzag_singlepass(polygon: Polygon, step=0.1, offset=0.0, global_shift=0.0, fill_rot_anlgle=0, v_angle=0):
+
+    v_angle_rad = np.radians(v_angle)
     if not polygon.is_valid:
         polygon = polygon.buffer(0)
+    if polygon.is_empty:
+        return []
+    dominant_angle = calculate_dominant_angle(polygon)
+    centroid = polygon.centroid
+    translated_polygon = translate(polygon, xoff=-centroid.x, yoff=-centroid.y)
+    rotated_polygon = rotate(translated_polygon, (fill_rot_anlgle - dominant_angle), origin=(0,0))
+    direction = dominant_edge_direction(rotated_polygon)
+    poly = _clip_polygon_by_offset(rotated_polygon, offset)
+    if poly.is_empty: 
+        return []
 
-    if offset > 0:
-        polygon = polygon.buffer(0)
-        if polygon.is_empty:
-            return []
-
-    minx, miny, maxx, maxy = polygon.bounds
-    minx += offset
-    miny += offset
-    maxx -=offset
-    maxy -=offset
-    
+    minx, miny, maxx, maxy = poly.bounds
     points = []
     toggle = True
 
     if direction == 'x':
-        x = minx
-        while x <= maxx:
+        x = minx + global_shift
+        calc_step = (maxy - miny) * np.tan(v_angle_rad) if v_angle_rad != 0 else step
+        start = x - calc_step
+        while start <= maxx + calc_step:
             y = maxy if toggle else miny
-            points.append((x, y))
+            points.append((start, y))
             toggle = not toggle
-            x += step
-    elif direction == 'y':
-        y = miny
-        while y <= maxy:
-            
+            start += calc_step
+    else:
+        y = miny + global_shift
+        calc_step = (maxx - minx) * np.tan(v_angle_rad) if v_angle_rad != 0 else step
+        start = y - calc_step
+        while start <= maxy + calc_step:
             x = maxx if toggle else minx
-            points.append((x, y))
+            points.append((x, start))
             toggle = not toggle
-            y += step
+            start += calc_step
+
+    if len(points) < 2:
+        return []
 
     zigzag_line = LineString(points)
-    intersection = polygon.intersection(zigzag_line)
+    intersection_rotated = poly.intersection(zigzag_line)
+    intersection_translated = rotate(intersection_rotated, (dominant_angle - fill_rot_anlgle), origin=(0,0))
+    intersection = translate(intersection_translated, xoff=centroid.x, yoff=centroid.y)
 
+    results = []
     if intersection.is_empty:
-        return []
+        cx, cy = poly.representative_point().x, poly.representative_point().y
+        if direction == 'x':
+            center_line = LineString([(cx, miny), (cx, maxy)])
+        else:
+            center_line = LineString([(minx, cy), (maxx, cy)])
+        inter_center = poly.intersection(center_line)
+        if not inter_center.is_empty:
+            if isinstance(inter_center, LineString):
+                results.append(inter_center)
+            elif isinstance(inter_center, MultiLineString):
+                results.extend(list(inter_center.geoms))
+        return results
 
     if isinstance(intersection, LineString):
-        return [intersection]
+        results.append(intersection)
     elif isinstance(intersection, MultiLineString):
-        return list(intersection.geoms)
-    else:
-        return []
+        results.extend(list(intersection.geoms))
+    return results
 
+# -----------------------
+# Optimización global shift
+# -----------------------
+def optimize_global_shift_for_layer(sections, step=0.1, offset=0.0, n_shifts=20, v_angle=0):
+    shifts_frac = np.linspace(0.0, 1.0, n_shifts, endpoint=False)
+    best = {'x': 0.0, 'y': 0.0}
+    polys_by_dir = {'x': [], 'y': []}
+    for sec in sections:
+        if sec.get('type', '').lower().find('wall') >= 0:
+            poly = sec['polygon']
+            d = dominant_edge_direction(poly)
+            polys_by_dir[d].append(poly)
 
-def extract_layer_polygons_with_fill(slices, step=0.1, offset=0.0):
-    """
-    Extrae polígonos 2D de las capas y aplica relleno zigzag adaptativo.
-    """
+    for d in ('x', 'y'):
+        if not polys_by_dir[d]:
+            best[d] = 0.0
+            continue
+        best_frac = 0.0
+        best_length = -1.0
+        for s in shifts_frac:
+            total_len = 0.0
+            for poly in polys_by_dir[d]:
+                minx,miny,maxx,maxy = _clip_polygon_by_offset(poly,offset).bounds
+                if (v_angle != 0):
+                    v_angle_rads = np.radians(v_angle)
+                    calc_step = (maxy - miny) * np.tan(v_angle_rads) if d == "x" else (maxx - minx) * np.tan(v_angle_rads)
+                else:
+                    calc_step = step
+                shift_actual =  s * calc_step
+                lines = generate_vzigzag_singlepass(poly, step=step, offset=offset, global_shift=shift_actual, v_angle=v_angle)
+                for ln in lines:
+                    total_len += ln.length
+            if total_len > best_length:
+                best_length = total_len
+                best_frac = s
+        best[d] = best_frac
+    return best
+
+# -----------------------
+# Extraer polígonos y aplicar relleno
+# -----------------------
+def extract_layer_polygons_with_fill(slices, step=0.1, offset=0.0, n_shifts=20, angle=0, v_angle=0, radius=0):
     layer_polygons = {}
-
     for layer in slices:
         z = layer["z"]
-        sections_data = []
-
+        raw_sections = []
         for section in layer["sections"]:
             path = section["path"]
             transform = section["tf"]
@@ -101,47 +229,64 @@ def extract_layer_polygons_with_fill(slices, step=0.1, offset=0.0):
             affine_matrix = transform[:2, :2].flatten().tolist() + transform[:2, 3].tolist()
 
             for polygon in path.polygons_full:
-                if np.allclose(affine_matrix, [1, 0, 0, 1, 0, 0]):
+                if np.allclose(affine_matrix, [1,0,0,1,0,0]):
                     transformed_polygon = polygon
                 else:
                     transformed_polygon = affine_transform(polygon, affine_matrix)
-
-                # Geom validation 
                 if not transformed_polygon.is_valid:
                     transformed_polygon = transformed_polygon.buffer(0)
+                raw_sections.append({"polygon": transformed_polygon, "type": element_type, "id": element_id})
 
-                # Fill direction
-                direction = dominant_edge_direction(transformed_polygon)
+        best_shifts = optimize_global_shift_for_layer(raw_sections, step=step, offset=offset, n_shifts=n_shifts, v_angle=v_angle)
 
-                data = {
-                    "polygon": transformed_polygon,
-                    "type": element_type,
-                    "id": element_id,
-                }
+        sections_data = []
+        for sec in raw_sections:
+            poly = sec['polygon']
+            element_type = sec['type']
+            element_id = sec['id']
+            data = {"polygon": poly, "type": element_type, "id": element_id, "fill_lines": []}
 
-                if "wall" in element_type.lower():
-                    if transformed_polygon.area > step**2:  # evitar geometrías pequeñas
-                        data["fill_lines"] = generate_vzigzag_fill(
-                            transformed_polygon, step=step, offset=offset, direction=direction
-                        )
-                    else:
-                        data["fill_lines"] = []
+            if "wall" in element_type.lower() and poly.area > (step**2) * 1e-3:
+                direction = dominant_edge_direction(poly)
+                frac = best_shifts.get(direction, 0.0)
+                clipped = _clip_polygon_by_offset(poly, offset)
+                if clipped.is_empty:
+                    calc_step = step
                 else:
-                    data["fill_lines"] = []
-
-                sections_data.append(data)
-
+                    minx, miny, maxx, maxy = clipped.bounds
+                    if v_angle != 0:
+                        v_angle_rad = np.radians(v_angle)
+                        calc_step = (maxy - miny) * np.tan(v_angle_rad) if direction == 'x' else (maxx - minx) * np.tan(v_angle_rad)
+                    else:
+                        calc_step = step
+                max_dim = max(maxx - minx, maxy - miny) if not clipped.is_empty else step
+                calc_step = float(np.clip(calc_step, step * 0.01, max_dim))
+                shift_real = float(frac) * calc_step
+                fill_lines = generate_vzigzag_singlepass(poly, step=step, offset=offset, global_shift=shift_real, fill_rot_anlgle=angle, v_angle=v_angle)
+                data["fill_lines"] = fill_lines
+            sections_data.append(data)
         layer_polygons[z] = sections_data
-
     return layer_polygons
 
+# -----------------------
+# Generar G-code
+# -----------------------
+def generate_gcode_from_meshes(generator, sliced_layers, step=0.1, offset=0.0, start_id=0, debug_plot_every=10, rotation_angle=0, v_angle=0, radius=0):
+    def to_vec3_mm_rounded(coord, z):
+        x_mm = round(coord[0] * 1000, 1)
+        y_mm = round(coord[1] * 1000, 1)
+        z_mm = round(z * 1000, 1)
+        return Vec3(x_mm, y_mm, z_mm)
 
-def generate_gcode_from_meshes(generator, sliced_layers, step=0.1, offset=0.0, start_id=0):
-    """
-    Convierte las capas procesadas en comandos G-code con contornos y relleno.
-    """
-    polygon_data = extract_layer_polygons_with_fill(sliced_layers, step=step, offset=offset)
+    polygon_data = extract_layer_polygons_with_fill(
+        sliced_layers, step=step, offset=offset, angle=rotation_angle, v_angle=v_angle, radius=radius
+    )
+
+    if debug_plot_every and debug_plot_every > 0:
+        plot_polygon_layer_debug(polygon_data, step=debug_plot_every)
+
     entity_id_counter = start_id
+    id_outline = 0
 
     for z, sections in sorted(polygon_data.items()):
         for section in sections:
@@ -149,30 +294,39 @@ def generate_gcode_from_meshes(generator, sliced_layers, step=0.1, offset=0.0, s
 
             # OUTLINE exterior
             coords = list(polygon.exterior.coords)
-            for i in range(len(coords) - 1):
-                p1 = Vec3(coords[i][0], coords[i][1], z)
-                p2 = Vec3(coords[i + 1][0], coords[i + 1][1], z)
+            detect_arc_shapes(coords)
+            n = len(coords) - 1
+            for i in range(n):
+                p1 = to_vec3_mm_rounded(coords[i], z)
+                p2 = to_vec3_mm_rounded(coords[i+1], z)
+                if p1.x == p2.x and p1.y == p2.y and p1.z == p2.z:
+                    continue
                 generator.line_entity(p1, p2, layer="outline", id=entity_id_counter)
                 entity_id_counter += 1
 
-            # OUTLINE interior 
+            # OUTLINE interior
             for interior in polygon.interiors:
                 coords = list(interior.coords)
-                for i in range(len(coords) - 1):
-                    p1 = Vec3(coords[i][0], coords[i][1], z)
-                    p2 = Vec3(coords[i + 1][0], coords[i + 1][1], z)
-                    generator.line_entity(p1, p2, layer="outline", id=entity_id_counter)
+                for i in range(len(coords)-1):
+                    p1 = to_vec3_mm_rounded(coords[i], z)
+                    p2 = to_vec3_mm_rounded(coords[i+1], z)
+                    if p1.x == p2.x and p1.y == p2.y and p1.z == p2.z:
+                        continue
+                    generator.line_entity(p1, p2, layer="outline", id=entity_id_counter, outline_id=id_outline)
                     entity_id_counter += 1
 
             # Filling
             fill_lines = section.get("fill_lines", [])
             for line in fill_lines:
                 coords = list(line.coords)
-                if len(coords) >= 2:
-                    for i in range(len(coords) - 1):
-                        p1 = Vec3(coords[i][0], coords[i][1], z)
-                        p2 = Vec3(coords[i + 1][0], coords[i + 1][1], z)
-                        generator.line_entity(p1, p2, layer="fill", id=entity_id_counter)
-                        entity_id_counter += 1
+                for i in range(len(coords)-1):
+                    p1 = to_vec3_mm_rounded(coords[i], z)
+                    p2 = to_vec3_mm_rounded(coords[i+1], z)
+                    if p1.x == p2.x and p1.y == p2.y and p1.z == p2.z:
+                        continue
+                    generator.line_entity(p1, p2, layer="fill", id=entity_id_counter, outline_id=id_outline)
+                    entity_id_counter += 1
+
+            id_outline += 1
 
     return entity_id_counter

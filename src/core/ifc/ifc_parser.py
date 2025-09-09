@@ -15,7 +15,7 @@ def ifc_parser(file_path):
     settings.set(settings.USE_WORLD_COORDS, True)
 
     meshes_data = []
-    allowed_types = {"IfcWall", "IfcWallStandardCase", "IfcSlab"}
+    allowed_types = {"IfcWall", "IfcWallStandardCase"}
 
     for element in ifc_file.by_type("IfcProduct"):
         if element.is_a() not in allowed_types:
