@@ -82,39 +82,3 @@ def ifc_script(path, e, layer_tick, feed_rate, feed_rate_g0, offset=0.0, step=0.
 
     return machine.g_code
 
-
-if __name__ == "__main__":
-    ifc_path = "src/core/ifc/AC20-FZK-Haus.ifc"
-    e_param = 0.05
-    layer_thickness = 20
-    feed_rate = 2500
-    feed_rate_g0 = 3000
-    offset_fill = 0.03
-    step_fill = 0.05
-    rotation_angle = 0
-    v_angle = 30
-    radius = 0.2
-    
-    gcode_output = ifc_script(
-        path=ifc_path,
-        e=e_param,
-        layer_tick=layer_thickness,
-        feed_rate=feed_rate,
-        feed_rate_g0=feed_rate_g0,
-        offset=offset_fill,
-        step=step_fill,
-        r_angle=rotation_angle,
-        v_angle=v_angle,
-        radius=radius
-    )
-    print("----- G-code generado -----\n")
-
-    output_path = "/home/juan-ferreira/PPS/dxfTOgcode/outputs/text/generated_code.gcode"
-    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-
-    with open(output_path, "w") as f:
-        f.write(gcode_output)
-
-    print(f"\nArchivo G-code guardado en: {output_path}")
-
-

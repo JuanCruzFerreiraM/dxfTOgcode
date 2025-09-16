@@ -43,56 +43,6 @@ def dominant_edge_direction(polygon: Polygon) -> str:
         return 'y'
     return 'x'
 
-def detect_arc_shapes (coords):
-    n = len(coords)
-    arc_data = None
-    end_arc_point = None
-    initial_arc_point = None
-    arcs_data = []
-    epsilon = 0.1
-    for i in  range(n): 
-        a = np.array(coords[(i-1) % n])
-        b = np.array(coords[i])
-        c = np.array(coords[(i + 1) % n])
-        vec_ab = b - a
-        vec_bc = c - b
-        cross_product = vec_ab[0]*vec_bc[1] - vec_ab[1]*vec_bc[0]
-        dot_product = np.dot(vec_ab, vec_bc)
-        theta = np.atan2(cross_product, dot_product)
-        k = (2 * np.sin(np.abs(theta)/2)) / np.abs(np.linalg.norm(vec_ab))
-        if (5 * np.pi / 180 < np.abs(theta) < 80 * np.pi/180):
-            print(f'a = {a} b = {b} c = {c} for valid theta = {theta * 180/np.pi} degrees')
-            if (arc_data == None):
-                arc_data = (theta, k)
-                initial_arc_point = a
-            else: 
-                relative_curvature = np.abs(k - arc_data[1]) / arc_data[1]
-                if ((np.sign(theta) == np.sign(arc_data[0])) and (relative_curvature <= epsilon)):
-                    end_arc_point = b
-                    arc_data = (theta, k)
-                else: 
-                    if (end_arc_point is None):
-                        arc_data = (theta, k)
-                        initial_arc_point = a
-                    else: 
-                        arcs_data.append((initial_arc_point,end_arc_point))
-                        arc_data = (theta, k)
-                        initial_arc_point = a
-                        end_arc_point = None
-        else: 
-            if (end_arc_point is not None): 
-                arcs_data.append((initial_arc_point,end_arc_point))
-                arc_data = None
-                end_arc_point = None
-                initial_arc_point = None      
-    if (end_arc_point is not None):
-        arcs_data.append((initial_arc_point,end_arc_point))
-        
-    return arcs_data
-            
-            
-    
-    return #lista de listas que contiene los puntos inicial, final y centro de un arco, ademas del radio 
 
 def _clip_polygon_by_offset(polygon: Polygon, offset: float) -> Polygon:
  
@@ -271,7 +221,7 @@ def extract_layer_polygons_with_fill(slices, step=0.1, offset=0.0, n_shifts=20, 
 # -----------------------
 # Generar G-code
 # -----------------------
-def generate_gcode_from_meshes(generator, sliced_layers, step=0.1, offset=0.0, start_id=0, debug_plot_every=10, rotation_angle=0, v_angle=0, radius=0):
+def generate_gcode_from_meshes(generator, sliced_layers, step=0.1, offset=0.0, start_id=0, debug_plot_every=0, rotation_angle=0, v_angle=0, radius=0):
     def to_vec3_mm_rounded(coord, z):
         x_mm = round(coord[0] * 1000, 1)
         y_mm = round(coord[1] * 1000, 1)
@@ -294,7 +244,6 @@ def generate_gcode_from_meshes(generator, sliced_layers, step=0.1, offset=0.0, s
 
             # OUTLINE exterior
             coords = list(polygon.exterior.coords)
-            detect_arc_shapes(coords)
             n = len(coords) - 1
             for i in range(n):
                 p1 = to_vec3_mm_rounded(coords[i], z)
