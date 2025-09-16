@@ -47,11 +47,6 @@ yarn-error.log
 *.swo
 *.bak
 
-# GCode specific #
-*.gcode
-*.nc
-*.tap
-
 #Específicos 
 outputs/
 src/utils/generate_dxf.py
