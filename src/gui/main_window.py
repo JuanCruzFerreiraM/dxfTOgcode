@@ -5,7 +5,7 @@ from PyQt6.QtCore import Qt
 from src.gui.customTitleBar import CustomTitleBar
 from src.gui.nav_bar import NavigationBar
 from src.gui.dxf_page import DXFPage
-from src.gui.stl_page import STLPage
+from gui.ifc_page import IFCPage
 from src.gui.gcode_preview import Preview
 
 
@@ -23,7 +23,7 @@ class MainWindow(QMainWindow):
         self.stack = QStackedWidget()
         self.preview_page = Preview(parent_stack= self.stack, previous_index= self.actIndex)
         self.stack.addWidget(DXFPage(self.stack, self.preview_page))
-        self.stack.addWidget(STLPage())
+        self.stack.addWidget(IFCPage(self.stack, self.preview_page))
         
         self.stack.addWidget(self.preview_page)
         

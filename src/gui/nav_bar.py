@@ -13,7 +13,7 @@ class NavigationBar(QWidget):
         layout.setSpacing(0)
 
         self.btn_dxf = QPushButton("DXF")
-        self.btn_stl = QPushButton("STL")
+        self.btn_stl = QPushButton("IFC")
 
         for btn in [self.btn_dxf, self.btn_stl]:
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
