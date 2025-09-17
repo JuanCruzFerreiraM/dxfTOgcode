@@ -9,6 +9,13 @@ from src.core.dxf.dxf_parser import FileError, UnsupportedEntityError
 import traceback
 
 
+# SpinBox personalizado que ignora la rueda del mouse
+class NoWheelDoubleSpinBox(QDoubleSpinBox):
+    def wheelEvent(self, event):
+        # Ignorar completamente el evento de la rueda
+        event.ignore()
+
+
 # Worker en un hilo separado para ejecutar ifc_script sin bloquear la UI
 class IFCWorker(QThread):
     finished = pyqtSignal(object, object)  # resultado, error
@@ -82,7 +89,7 @@ class IFCPage(QWidget):
         form_layout.addWidget(form_button)
         layout.addLayout(form_layout)
 
-        # Parámetros
+        # Parámetros - usando NoWheelDoubleSpinBox
         self.layerThickness = self._add_spinbox(layout, "Espesor de capa", 0.01, 100, 20, 0.01, " mm")
         self.feedRate = self._add_spinbox(layout, "Velocidad de impresión (F)", 1, 10000, 2500, 1, " mm/min")
         self.feedRateG0 = self._add_spinbox(layout, "Velocidad de desplazamiento (G0)", 1, 10000, 3000, 1, " mm/min")
@@ -94,7 +101,8 @@ class IFCPage(QWidget):
         v_angle_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         layout.addWidget(v_angle_label)
 
-        self.v_angle = QDoubleSpinBox()
+        # Usar la clase personalizada sin rueda
+        self.v_angle = NoWheelDoubleSpinBox()
         self.v_angle.setMinimum(0)
         self.v_angle.setMaximum(80)
         self.v_angle.setSingleStep(1)
@@ -166,7 +174,8 @@ class IFCPage(QWidget):
 
     def _add_spinbox(self, layout, label, minv, maxv, default, step, suffix):
         layout.addWidget(QLabel(label))
-        box = QDoubleSpinBox()
+        # Usar la clase personalizada sin rueda
+        box = NoWheelDoubleSpinBox()
         box.setMinimum(minv)
         box.setMaximum(maxv)
         box.setSingleStep(step)
