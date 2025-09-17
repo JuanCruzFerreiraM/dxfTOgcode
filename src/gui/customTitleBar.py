@@ -6,7 +6,6 @@ class CustomTitleBar(QWidget):
     def __init__(self, parent):
         super().__init__(parent)
         self.parent = parent
-        self.mouse_pos = None
 
         self.setFixedHeight(40)
         self.setStyleSheet("background-color: #F5F7FA;")
@@ -25,6 +24,8 @@ class CustomTitleBar(QWidget):
                 color: #E74C3C;
                 border: none;
                 border-radius: 15px;
+                width: 30px;
+                height: 30px;
             }
             QPushButton:hover {
                 background-color: rgba(231, 76, 60, 0.15);
@@ -45,7 +46,8 @@ class CustomTitleBar(QWidget):
                 color: #2ECC71;
                 border: none;
                 border-radius: 15px;
-
+                width: 30px;
+                height: 30px;
             }
             QPushButton:hover {
                 background-color: rgba(46, 204, 113, 0.15);
@@ -67,6 +69,8 @@ class CustomTitleBar(QWidget):
                 color: #F1C40F;
                 border: none;
                 border-radius: 15px;
+                width: 30px;
+                height: 30px;
             }
             QPushButton#MinimizeButton:hover {
                 background-color: rgba(241, 196, 15, 0.15);
@@ -79,26 +83,13 @@ class CustomTitleBar(QWidget):
         # Layout
         layout = QHBoxLayout()
         layout.setContentsMargins(0, 0, 10, 0)
-        layout.setSpacing(0)
+        layout.setSpacing(5)
         layout.addWidget(title)
         layout.addStretch()
         layout.addWidget(btn_minimize)
         layout.addWidget(self.btn_resize)
         layout.addWidget(btn_close)
         self.setLayout(layout)
-
-    def mousePressEvent(self, event):
-        if event.button() == Qt.MouseButton.LeftButton:
-            self.mouse_pos = event.globalPosition().toPoint()
-
-    def mouseMoveEvent(self, event):
-        if self.mouse_pos is not None:
-            delta = event.globalPosition().toPoint() - self.mouse_pos
-            self.parent.move(self.parent.pos() + delta)
-            self.mouse_pos = event.globalPosition().toPoint()
-
-    def mouseReleaseEvent(self, event):
-        self.mouse_pos = None
 
     def toggle_max_restore(self):
         if self.parent.isMaximized():
