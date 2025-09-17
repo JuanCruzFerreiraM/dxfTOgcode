@@ -10,6 +10,7 @@ from collections import defaultdict
 import hashlib
 import json
 import time
+import numpy as np
 
 def dxf_script(path, e, layer_tick, layer_amount, feed_rate, feed_rate_g0):
     gcode_generator = GcodeGenerator()
@@ -43,7 +44,7 @@ def hash_entity_list(entity_list):
     raw_str = json.dumps(raw, sort_keys=True)
     return hashlib.md5(raw_str.encode()).hexdigest()
 
-def ifc_script(path, e, layer_tick, feed_rate, feed_rate_g0, offset=0.0, step=0.1, r_angle=0,v_angle = 0, radius=0):
+def ifc_script(path, e, layer_tick, feed_rate, feed_rate_g0, offset=0.0, step=0.1, r_angle=0, v_angle=0, radius=0):
     gcode_generator = GcodeGenerator()
     initial_point = Vec3(0, 0, 0)
 
@@ -56,7 +57,7 @@ def ifc_script(path, e, layer_tick, feed_rate, feed_rate_g0, offset=0.0, step=0.
     print(f"[Tiempo] IFC Parser + Slicer: {time.time() - start:.2f} segundos")
 
     start = time.time()
-    generate_gcode_from_meshes(gcode_generator, meshes, step=step, offset=offset, start_id=0,rotation_angle=r_angle, v_angle=v_angle, radius=radius)
+    generate_gcode_from_meshes(gcode_generator, meshes, step=step, offset=offset, start_id=0, rotation_angle=r_angle, v_angle=v_angle, radius=radius)
     print(f"[Tiempo] Generate G-code from meshes: {time.time() - start:.2f} segundos")
 
     start = time.time()
@@ -81,4 +82,6 @@ def ifc_script(path, e, layer_tick, feed_rate, feed_rate_g0, offset=0.0, step=0.
     print(f"[Tiempo] Generación completa de G-code: {time.time() - start:.2f} segundos")
 
     return machine.g_code
+
+
 
