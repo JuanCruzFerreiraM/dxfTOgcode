@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-from shapely.affinity import affine_transform, rotate, translate
+from shapely.affinity import affine_transform, rotate, translate, scale
 from shapely.geometry import LineString, MultiLineString, Polygon, MultiPolygon
 from shapely.ops import unary_union
 from ezdxf.math import Vec3
@@ -13,6 +13,12 @@ from src.utils.debug_mpl import plot_polygon_layer_debug
 # -----------------------
 # Utilidades geométricas
 # -----------------------
+
+def convert_polygon_to_mm(polygon: Polygon) -> Polygon:
+    """
+    Convierte un polígono de metros a milímetros (multiplicar por 1000).
+    """
+    return scale(polygon, xfact=1000.0, yfact=1000.0, origin=(0, 0))
 
 def simplify_union_polygon(polygon: Polygon, tolerance=0.01) -> Polygon:
     """
@@ -55,9 +61,10 @@ def dominant_edge_direction(polygon: Polygon) -> str:
         return 'y'
     return 'x'
 
-def normalize_polygon_bounds(polygon: Polygon, tolerance=1e-10) -> Polygon:
+def normalize_polygon_bounds(polygon: Polygon, tolerance=1e-7) -> Polygon:
     """
     Normaliza un polígono eliminando errores numéricos muy pequeños.
+    Ajustado para coordenadas en mm (tolerancia mayor).
     """
     if polygon.is_empty:
         return polygon
@@ -70,8 +77,8 @@ def normalize_polygon_bounds(polygon: Polygon, tolerance=1e-10) -> Polygon:
             x = 0.0
         if abs(y) < tolerance:
             y = 0.0
-        x = round(x, 6)
-        y = round(y, 6)
+        x = round(x, 3)  # 3 decimales para mm
+        y = round(y, 3)  # 3 decimales para mm
         normalized_coords.append((x, y))
     
     try:
@@ -208,6 +215,11 @@ def optimize_global_shift_for_layer(sections, step=0.1, offset=0.0, n_shifts=20,
 # Extraer polígonos y aplicar relleno con superposición Z
 # -----------------------
 def extract_layer_polygons_with_fill(slices, step=0.1, offset=0.0, n_shifts=20, angle=0, v_angle=0, radius=0):
+    """
+    Extrae polígonos con su información de relleno, pero NO genera entidades.
+    Retorna solo los datos necesarios para optimización posterior.
+    IMPORTANTE: Convierte coordenadas de metros a milímetros.
+    """
     layer_polygons = {}
     
     # Recopilar todos los polígonos por element_type e element_id a través de todas las capas
@@ -230,6 +242,9 @@ def extract_layer_polygons_with_fill(slices, step=0.1, offset=0.0, n_shifts=20, 
                 if not transformed_polygon.is_valid:
                     transformed_polygon = transformed_polygon.buffer(0)
                 
+                # CONVERTIR DE METROS A MILÍMETROS
+                transformed_polygon = convert_polygon_to_mm(transformed_polygon)
+                
                 key = f"{element_type}_{element_id}"
                 if key not in all_polygons_by_element:
                     all_polygons_by_element[key] = []
@@ -251,6 +266,7 @@ def extract_layer_polygons_with_fill(slices, step=0.1, offset=0.0, n_shifts=20, 
                     union_polygon = max(union_polygon.geoms, key=lambda p: p.area)
                     union_polygon = normalize_polygon_bounds(union_polygon)
                 
+                # Área mínima ajustada para mm (step ya viene en mm)
                 if union_polygon.area > (step**2) * 1e-3:
                     union_polygons_for_optimization.append({
                         "polygon": union_polygon, 
@@ -267,7 +283,7 @@ def extract_layer_polygons_with_fill(slices, step=0.1, offset=0.0, n_shifts=20, 
                         "id": element_id
                     })
     
-    # Calcular best_shifts usando los polígonos unión
+    # Calcular best_shifts
     global_best_shifts = optimize_global_shift_for_layer(
         union_polygons_for_optimization, step=step, offset=offset, n_shifts=n_shifts, v_angle=v_angle
     )
@@ -297,16 +313,15 @@ def extract_layer_polygons_with_fill(slices, step=0.1, offset=0.0, n_shifts=20, 
         calc_step = float(np.clip(calc_step, step * 0.01, max_dim))
         shift_real = float(frac) * calc_step
         
-        # Generar patrón base
         base_pattern = generate_vzigzag_singlepass(
             poly, step=step, offset=offset, global_shift=shift_real, 
             fill_rot_anlgle=angle, v_angle=v_angle
         )
         base_patterns[key] = base_pattern
 
-    # Aplicar los patrones base a todas las capas
+    # Aplicar patrones y retornar datos estructurados
     for layer in slices:
-        z = layer["z"]
+        z = layer["z"]  # z ya viene en mm desde slicer
         raw_sections = []
         
         for section in layer["sections"]:
@@ -325,6 +340,9 @@ def extract_layer_polygons_with_fill(slices, step=0.1, offset=0.0, n_shifts=20, 
                 if not transformed_polygon.is_valid:
                     transformed_polygon = transformed_polygon.buffer(0)
                 
+                # CONVERTIR DE METROS A MILÍMETROS
+                transformed_polygon = convert_polygon_to_mm(transformed_polygon)
+                
                 raw_sections.append({"polygon": transformed_polygon, "type": element_type, "id": element_id})
 
         sections_data = []
@@ -332,7 +350,19 @@ def extract_layer_polygons_with_fill(slices, step=0.1, offset=0.0, n_shifts=20, 
             poly = sec['polygon']
             element_type = sec['type']
             element_id = sec['id']
-            data = {"polygon": poly, "type": element_type, "id": element_id, "fill_lines": []}
+            
+            # Calcular centroide y puntos de contorno (ya en mm)
+            centroid = poly.centroid
+            boundary_points = list(poly.exterior.coords)
+            
+            data = {
+                "polygon": poly, 
+                "type": element_type, 
+                "id": element_id, 
+                "fill_lines": [],
+                "centroid": Vec3(centroid.x, centroid.y, z),  # z ya en mm
+                "boundary_points": [Vec3(p[0], p[1], z) for p in boundary_points]  # coordenadas en mm
+            }
 
             if "wall" in element_type.lower() and poly.area > (step**2) * 1e-3:
                 key = f"{element_type}_{element_id}"
@@ -355,65 +385,3 @@ def extract_layer_polygons_with_fill(slices, step=0.1, offset=0.0, n_shifts=20, 
         layer_polygons[z] = sections_data
     
     return layer_polygons
-
-# -----------------------
-# Generar G-code
-# -----------------------
-def generate_gcode_from_meshes(generator, sliced_layers, step=0.1, offset=0.0, start_id=0, debug_plot_every=0, rotation_angle=0, v_angle=0, radius=0):
-    def to_vec3_mm_rounded(coord, z):
-        x_mm = round(coord[0] * 1000, 1)
-        y_mm = round(coord[1] * 1000, 1)
-        z_mm = round(z * 1000, 1)
-        return Vec3(x_mm, y_mm, z_mm)
-
-    polygon_data = extract_layer_polygons_with_fill(
-        sliced_layers, step=step, offset=offset, angle=rotation_angle, v_angle=v_angle, radius=radius
-    )
-
-    if debug_plot_every and debug_plot_every > 0:
-        plot_polygon_layer_debug(polygon_data, step=debug_plot_every)
-
-    entity_id_counter = start_id
-    id_outline = 0
-
-    for z, sections in sorted(polygon_data.items()):
-        for section in sections:
-            polygon = section["polygon"]
-
-            # OUTLINE exterior
-            coords = list(polygon.exterior.coords)
-            n = len(coords) - 1
-            for i in range(n):
-                p1 = to_vec3_mm_rounded(coords[i], z)
-                p2 = to_vec3_mm_rounded(coords[i+1], z)
-                if p1.x == p2.x and p1.y == p2.y and p1.z == p2.z:
-                    continue
-                generator.line_entity(p1, p2, layer="outline", id=entity_id_counter)
-                entity_id_counter += 1
-
-            # OUTLINE interior
-            for interior in polygon.interiors:
-                coords = list(interior.coords)
-                for i in range(len(coords)-1):
-                    p1 = to_vec3_mm_rounded(coords[i], z)
-                    p2 = to_vec3_mm_rounded(coords[i+1], z)
-                    if p1.x == p2.x and p1.y == p2.y and p1.z == p2.z:
-                        continue
-                    generator.line_entity(p1, p2, layer="outline", id=entity_id_counter, outline_id=id_outline)
-                    entity_id_counter += 1
-
-            # Filling
-            fill_lines = section.get("fill_lines", [])
-            for line in fill_lines:
-                coords = list(line.coords)
-                for i in range(len(coords)-1):
-                    p1 = to_vec3_mm_rounded(coords[i], z)
-                    p2 = to_vec3_mm_rounded(coords[i+1], z)
-                    if p1.x == p2.x and p1.y == p2.y and p1.z == p2.z:
-                        continue
-                    generator.line_entity(p1, p2, layer="fill", id=entity_id_counter, outline_id=id_outline)
-                    entity_id_counter += 1
-
-            id_outline += 1
-
-    return entity_id_counter

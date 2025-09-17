@@ -1,35 +1,159 @@
 from ezdxf.math import Vec3
 from math import sin, cos, radians, atan
-from src.utils.geometry import is_ccw, bulge_to_center
-from src.utils.graph import traversal_order
+from src.utils.geometry import is_ccw, bulge_to_center, distance
+from src.utils.path_optimizer import optimize_layer_traversal
+import networkx as nx
+
 
 class InvalidPointError(Exception):
-    """Excepción lanzada cuando un punto tiene valores inválidos."""
     pass
 
+
 class GcodeGenerator:
-    def __init__ (self):
+    def __init__(self):
         self.entity_list = []
-
-    def line_entity(self, start_point, end_point, layer, id, outline_id=-1):
+        self.id_entity_counter = 0
+        self.dxf_reference_point = Vec3(0, 0, 0)
+    
+    
+    def find_optimal_outline_start(self, polygon_coords, entry_point):
         """
-        Generates a G-code command for a straight line entity.
-
-        #### Args:
-        - start_point (Vec3): The initial point of the line.
-        - end_point (Vec3): The end point of the line.
-        - layer (str): The layer where the entity is located.
-        - id (int): Unique identifier for the entity.
-
-        #### Modifies:
-        - self.entity_list (list): Adds the generated G-code command to the list.
+        Encuentra el índice óptimo para empezar el outline desde el punto más cercano.
         """
-        if start_point is None or end_point is None:
-            raise InvalidPointError(f"Invalid point detected: start_point={start_point}, end_point={end_point}")
-        if any(coord is None for coord in [start_point.x, start_point.y, start_point.z, end_point.x, end_point.y, end_point.z]):
-            raise InvalidPointError(f"Invalid point detected: start_point={start_point}, end_point={end_point}")
+        min_dist = float('inf')
+        best_idx = 0
         
-        command_data = {
+        for i, coord in enumerate(polygon_coords[:-1]):  # Excluir último punto duplicado
+            point = Vec3(coord[0], coord[1], entry_point.z)
+            dist = point.distance(entry_point)
+            if dist < min_dist:
+                min_dist = dist
+                best_idx = i
+        
+        return best_idx
+    
+    
+    def generate_outline_from_point(self, polygon, entry_point, layer, outline_id):
+        """
+        Genera outline empezando desde el punto más cercano al entry_point.
+        """
+        coords = list(polygon.exterior.coords)
+        if len(coords) < 2:
+            return []
+        
+        # Encontrar mejor punto de inicio
+        start_idx = self.find_optimal_outline_start(coords, entry_point)
+        
+        # Reordenar coordenadas para empezar desde start_idx
+        ordered_coords = coords[start_idx:-1] + coords[:start_idx+1]
+        
+        entities = []
+        for i in range(len(ordered_coords) - 1):
+            p1 = Vec3(ordered_coords[i][0], ordered_coords[i][1], entry_point.z)
+            p2 = Vec3(ordered_coords[i+1][0], ordered_coords[i+1][1], entry_point.z)
+            
+            if p1.distance(p2) > 1e-6:  # Evitar líneas de longitud cero
+                entities.append({
+                    'command': 'G1',
+                    'param': {
+                        'start': p1,
+                        'end': p2,
+                        'layer': layer,
+                        'id': self.id_entity_counter,
+                        'outline_id': outline_id
+                    }
+                })
+                self.id_entity_counter += 1
+        
+        # Agregar outlines interiores (huecos)
+        for interior in polygon.interiors:
+            interior_coords = list(interior.coords)
+            for i in range(len(interior_coords) - 1):
+                p1 = Vec3(interior_coords[i][0], interior_coords[i][1], entry_point.z)
+                p2 = Vec3(interior_coords[i+1][0], interior_coords[i+1][1], entry_point.z)
+                
+                if p1.distance(p2) > 1e-6:
+                    entities.append({
+                        'command': 'G1',
+                        'param': {
+                            'start': p1,
+                            'end': p2,
+                            'layer': layer,
+                            'id': self.id_entity_counter,
+                            'outline_id': outline_id
+                        }
+                    })
+                    self.id_entity_counter += 1
+        
+        return entities
+    
+    
+    def generate_fill_entities(self, fill_lines, layer, outline_id, z):
+        """
+        Genera entidades de relleno.
+        """
+        entities = []
+        for line in fill_lines:
+            coords = list(line.coords)
+            for i in range(len(coords) - 1):
+                p1 = Vec3(coords[i][0], coords[i][1], z)
+                p2 = Vec3(coords[i+1][0], coords[i+1][1], z)
+                
+                if p1.distance(p2) > 1e-6:
+                    entities.append({
+                        'command': 'G1',
+                        'param': {
+                            'start': p1,
+                            'end': p2,
+                            'layer': 'fill',
+                            'id': self.id_entity_counter,
+                            'outline_id': outline_id
+                        }
+                    })
+                    self.id_entity_counter += 1
+        
+        return entities
+    
+    
+    def generate_optimized_entities(self, polygon_data, initial_point=Vec3(0, 0, 0)):
+        """
+        Genera entidades en orden optimizado para minimizar G0.
+        """
+        self.entity_list = []
+        self.id_entity_counter = 0
+        
+        # Optimizar recorrido
+        optimized_traversal = optimize_layer_traversal(polygon_data, initial_point)
+        
+        for z in sorted(optimized_traversal.keys()):
+            sequence = optimized_traversal[z]
+            
+            for step in sequence:
+                polygon_data_item = step['polygon_data']
+                entry_point = step['entry_point']
+                
+                polygon = polygon_data_item['polygon']
+                fill_lines = polygon_data_item.get('fill_lines', [])
+                outline_id = step['polygon_index']
+                
+                # Generar outline optimizado
+                outline_entities = self.generate_outline_from_point(
+                    polygon, entry_point, 'outline', outline_id
+                )
+                self.entity_list.extend(outline_entities)
+                
+                # Generar fill inmediatamente después
+                fill_entities = self.generate_fill_entities(
+                    fill_lines, 'fill', outline_id, z
+                )
+                self.entity_list.extend(fill_entities)
+        
+        return self.entity_list
+    
+    
+    # Mantener métodos existentes para compatibilidad
+    def line_entity(self, start_point, end_point, layer, id, outline_id=-1):
+        entity = {
             'command': 'G1',
             'param': {
                 'start': start_point,
@@ -39,155 +163,53 @@ class GcodeGenerator:
                 'outline_id': outline_id
             }
         }
-        self.entity_list.append(command_data)
-        
+        self.entity_list.append(entity)
+    
+    
     def arc_entity(self, center, radius, start_angle, end_angle, layer, id):
-        """
-        Generates a G-code command for an arc entity.
-
-        #### Args:
-        - center (Vec3): The center point of the arc.
-        - radius (float): The radius of the arc.
-        - start_angle (float): The starting angle of the arc (in degrees).
-        - end_angle (float): The ending angle of the arc (in degrees).
-        - layer (str): The layer where the entity is located.
-        - id (int): Unique identifier for the entity.
-
-        #### Modifies:
-        - self.entity_list (list): Adds the generated G-code command to the list.
-
-        #### Raises:
-        - InvalidPointError: If the center or calculated points are invalid.
-        """
-        if center is None:
-            raise InvalidPointError(f"Invalid center detected: center={center}")
-        if any(coord is None for coord in [center.x, center.y, center.z, radius, start_angle, end_angle]):
-            raise InvalidPointError(f"Invalid center detected: center={center}")
+        start_x = center.x + radius * cos(radians(start_angle))
+        start_y = center.y + radius * sin(radians(start_angle))
+        end_x = center.x + radius * cos(radians(end_angle))
+        end_y = center.y + radius * sin(radians(end_angle))
         
-        sx = radius * cos(radians(start_angle)) + center.x
-        sy = radius * sin(radians(start_angle)) + center.y
-        ex = radius * cos(radians(end_angle)) + center.x
-        ey = radius * sin(radians(end_angle)) + center.y
+        start_point = Vec3(start_x, start_y, center.z)
+        end_point = Vec3(end_x, end_y, center.z)
         
-        if any(coord is None for coord in [sx, sy, ex, ey]):
-            raise InvalidPointError(f"Invalid calculated points: start=({sx}, {sy}), end=({ex}, {ey})")
+        i = center.x - start_x
+        j = center.y - start_y
         
-        command_data = {
+        if is_ccw(start_angle, end_angle):
+            value = 3
+        else:
+            value = 2
+        
+        entity = {
             'command': 'G2-3',
             'param': {
-                'start': Vec3(sx, sy, 0),
-                'end': Vec3(ex, ey, 0),
-                'i': center.x - sx,
-                'j': center.y - sy,
-                'value': 3 if is_ccw(start_angle, end_angle) else 2,
+                'start': start_point,
+                'end': end_point,
+                'i': i,
+                'j': j,
+                'value': value,
                 'layer': layer,
                 'id': id
             }
         }
-        self.entity_list.append(command_data)
+        self.entity_list.append(entity)
     
     
     def adjust_to_reference(self):
-        """
-        Adjusts all entities to a reference point (bottom-left corner).
-
-        #### Modifies:
-        - self.entity_list (list): Updates the start and end points of all entities to be relative to the reference point.
-        """
-        reference = min(self.entity_list, key=lambda e: (e['param']['start'].x, e['param']['start'].y))['param']['start']
-        for entity in self.entity_list:
-            entity['param']['start'] = entity['param']['start'] - reference
-            entity['param']['end'] = entity['param']['end'] - reference
-
-           
-
+        if self.entity_list:
+            first_entity = self.entity_list[0]
+            self.dxf_reference_point = first_entity['param']['start']
+    
+    
     def order_entity_list(self, entity_list, initial_point):
         """
-        Orders the list of entities based on a graph algorithm.
-
-        #### Args:
-        - entity_list (list): List of entities to be ordered.
-        - initial_point (Vec3): The starting point for ordering.
-
-        #### Modifies:
-        - self.entity_list (list): Updates the internal entity list to follow the order.
-
-        #### Returns:
-        - list: Ordered list of entities.
+        Método mantenido para compatibilidad - ahora simplificado.
         """
-        self.entity_list = entity_list
-        self.adjust_to_reference()  
-        ordered_ids = traversal_order(entity_list, initial_point)
-        id_to_entity = {entity['param']['id']: entity for entity in entity_list}
-        ordered_list = [id_to_entity[i] for i in ordered_ids if i in id_to_entity]
-        self.entity_list = ordered_list
-        return ordered_list
+        return entity_list  # Ya están optimizados
+    
     
     def get_entity_list(self):
-         
         return self.entity_list
-    
-    
-    #Esta función por el momento no tiene uso, queda por si las dudas ya que en principio funciona bien.
-    def lwpolyline_entity(self, point_list): #Agregar manejo de layers
-        #pensar en refactoring para mejorar legibilidad 
-        prev_point = Vec3(0,0,0)
-        if (point_list.close):
-            initial_point = point_list[0]
-        prev_point = point_list[0]
-        bulge = point_list[0].bulge
-        for actual_point in point_list[1:]:
-            if (bulge == 0):
-                command_data = {
-                    'command': 'G1',
-                    'param': {
-                        'start': prev_point,
-                        'end': actual_point
-                    }
-                }
-                self.entity_list.append(command_data)
-            else: 
-                center = bulge_to_center(actual_point, prev_point, bulge)
-                i = center.x - prev_point.x
-                j = center.y - prev_point.y
-                command = 3 if bulge > 0 else 2
-                command_data = {
-                    'command': 'G2-3',
-                    'param': {
-                        'start': prev_point,
-                        'end': actual_point,
-                        'i': i,
-                        'j': j,
-                        'value': command
-                     }
-                }
-                self.entity_list.append(command_data)
-            prev_point = actual_point
-            bulge = actual_point.bulge        
-        if (point_list.close):
-            actual_point = initial_point
-            if (bulge == 0):
-                command_data = {
-                    'command': 'G1',
-                    'param': {
-                        'start': prev_point,
-                        'end': actual_point
-                    }
-                }
-                self.entity_list.append(command_data)
-            else: 
-                center = bulge_to_center(actual_point, prev_point, bulge)
-                i = center.x - prev_point.x
-                j = center.y - prev_point.y
-                command = 3 if bulge > 0 else 2
-                command_data = {
-                    'command': 'G2-3',
-                    'param': {
-                        'start': prev_point,
-                        'end': actual_point,
-                        'i': i,
-                        'j': j,
-                        'value': command
-                     }
-                }
-                self.entity_list.append(command_data)
