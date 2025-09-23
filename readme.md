@@ -7,14 +7,13 @@
 ## Módulos actuales
 
 - ✅ Conversor de capas 2D — **completo**
-- ⏳ GUI para conversor 2D — *en desarrollo*
-- ⏳ Slicer STL — *pendiente*
+- ⏳ GUI para conversor 2D — **completo**
+- ⏳ Slicer IFC — **completo**
 
 ## Roadmap
 
 - `v1.0.0`: GUI para el conversor 2D
-- `v1.5.0`: Slicer funcional para STL
-- `v2.0.0`: GUI completa e integración total
+- `v2.0.0`: GUI completa e integración total con IFC
 
 ## 🛠️ Instalación
 
