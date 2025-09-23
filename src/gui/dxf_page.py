@@ -1,9 +1,12 @@
-from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
-QDoubleSpinBox, QSpinBox, QLineEdit, QPushButton, QFileDialog, QMessageBox)
+from PyQt6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
+    QSpinBox, QDoubleSpinBox, QFileDialog, QMessageBox, QScrollArea  # ✅ Agregar QDoubleSpinBox aquí
+)
 from PyQt6.QtGui import QIcon
 from PyQt6.QtCore import Qt
 from src.core.app import dxf_script
-from core.dxf.dxf_parser import FileError, UnsupportedEntityError
+from src.core.dxf.dxf_parser import FileError, UnsupportedEntityError
+import traceback
 
 class DXFPage (QWidget):
     def __init__(self, parent_stack, parent_preview):

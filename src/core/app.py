@@ -25,7 +25,7 @@ def dxf_script(path, e, layer_tick, layer_amount, feed_rate, feed_rate_g0):
     entities = gcode_generator.order_entity_list(main_list, initial_point)
     machine = MachineHandler(f=feed_rate, fG0=feed_rate_g0, e=e, layer_thick=layer_tick)
     for i in range(layer_amount):
-        machine.generate_gcode(entities, i, (layer_amount - 1) * layer_tick)
+        machine.generate_gcode(entities, i, (layer_amount - 1) * layer_tick, 0, float("inf"))
     return machine.g_code
 
 def hash_entity_list(entity_list):
@@ -44,7 +44,7 @@ def hash_entity_list(entity_list):
     raw_str = json.dumps(raw, sort_keys=True)
     return hashlib.md5(raw_str.encode()).hexdigest()
 
-def ifc_script(path, e, layer_tick, feed_rate, feed_rate_g0, offset=0.0, step=0.1, r_angle=0, v_angle=0, radius=0):
+def ifc_script(path, e, layer_tick, feed_rate, feed_rate_g0, offset=0.0, step=0.1, r_angle=0, v_angle=0, radius=0, t_min = 0, t_max = float("inf")):
     """
     Script principal optimizado para minimizar movimientos G0.
     """
@@ -90,9 +90,15 @@ def ifc_script(path, e, layer_tick, feed_rate, feed_rate_g0, offset=0.0, step=0.
     # 5. Generación de G-code
     start = time.time()
     machine = MachineHandler(f=feed_rate, fG0=feed_rate_g0, e=e, layer_thick=layer_tick)
-    
+    error_flag = False
     for i, z in enumerate(z_values):
-        machine.generate_gcode(layer_entities[z], i, (layer_amount - 1) * layer_tick)
+        try: 
+            machine.generate_gcode(layer_entities[z], i, (layer_amount - 1) * layer_tick,t_min,t_max)
+        except Exception as e: 
+            error_flag = True
+            raise RuntimeError(f'Error al generar el código G, tiempo de capa superado, revisar parámetros o modelo: {e}')
+        if (error_flag): 
+            break
     
     print(f"[Tiempo] Generación de G-code: {time.time() - start:.2f} segundos")
     

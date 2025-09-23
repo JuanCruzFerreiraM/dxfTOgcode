@@ -3,10 +3,10 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QIcon
-from src.gui.nav_bar import NavigationBar
-from src.gui.dxf_page import DXFPage
-from gui.ifc_page import IFCPage
-from src.gui.gcode_preview import Preview
+from src.gui.nav_bar import NavigationBar      # ✅ Correcto
+from src.gui.dxf_page import DXFPage          # ✅ Correcto
+from src.gui.ifc_page import IFCPage          # ✅ Correcto (no gui.ifc_page)
+from src.gui.gcode_preview import Preview     # ✅ Correcto
 
 
 class MainWindow(QMainWindow):

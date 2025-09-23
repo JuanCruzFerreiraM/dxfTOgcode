@@ -6,6 +6,7 @@ from PyQt6.QtGui import QIcon
 from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal
 from src.core.app import ifc_script
 from src.core.dxf.dxf_parser import FileError, UnsupportedEntityError
+from src.core.machine_handler import LayerTimeError  # ✅ Agregar
 import traceback
 
 
@@ -121,6 +122,15 @@ class IFCPage(QWidget):
             self.v_angle_msg.setVisible(val != 0)
         self.v_angle.valueChanged.connect(show_v_angle_msg)
 
+        # En el __init__, agregar después de v_angle:
+        self.t_min = self._add_spinbox(layout, "Tiempo mínimo por capa", 0, 60, 0, 0.1, " min")
+        self.t_max = self._add_spinbox(layout, "Tiempo máximo por capa", 0.1, 10000, 10000, 0.1, " min")
+
+        # Mensaje informativo
+        time_info = QLabel("⚠️ Si una capa excede el tiempo máximo, se detendrá la generación.")
+        time_info.setStyleSheet("color: #C0392B; font-size: 12px;")
+        layout.addWidget(time_info)
+
         # Botón generar
         generate = QPushButton('Generar G-code')
         generate.clicked.connect(self.generate_gcode)
@@ -198,7 +208,9 @@ class IFCPage(QWidget):
             feed_rate_g0=self.feedRateG0.value(),
             offset=self.offsetFill.value(),
             step=self.stepFill.value(),
-            v_angle=self.v_angle.value()
+            v_angle=self.v_angle.value(),
+            t_min=self.t_min.value(),          # ✅ Agregar
+            t_max=self.t_max.value()           # ✅ Agregar
         )
 
         # Progress dialog estilo custom
@@ -237,7 +249,20 @@ class IFCPage(QWidget):
         self.progress.close()
 
         if error:
-            if isinstance(error, (FileError, UnsupportedEntityError, RuntimeError)):
+            if isinstance(error, LayerTimeError):
+                # Mensaje específico para error de tiempo de capa
+                QMessageBox.warning(
+                    self, 
+                    "Tiempo de capa excedido", 
+                    f"⚠️ Error en la capa {error.layer_number}:\n\n"
+                    f"Tiempo calculado: {error.layer_time:.2f} minutos\n"
+                    f"Límite máximo: {error.t_max:.2f} minutos\n\n"
+                    f"Sugerencias:\n"
+                    f"• Reducir la velocidad de impresión\n"
+                    f"• Aumentar el límite de tiempo máximo\n"
+                    f"• Revisar la geometría de esta capa"
+                )
+            elif isinstance(error, (FileError, UnsupportedEntityError, RuntimeError)):
                 QMessageBox.critical(self, "Error", str(error))
             else:
                 QMessageBox.critical(self, "Error inesperado", f"Se produjo un error inesperado:\n{str(error)}")

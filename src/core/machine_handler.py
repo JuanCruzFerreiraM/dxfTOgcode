@@ -1,4 +1,14 @@
 from src.utils.geometry import distance
+import math
+
+# Excepción personalizada para tiempo de capa
+class LayerTimeError(Exception):
+    """Excepción lanzada cuando el tiempo de capa excede el límite máximo."""
+    def __init__(self, layer_time, t_max, layer_number):
+        self.layer_time = layer_time
+        self.t_max = t_max
+        self.layer_number = layer_number
+        super().__init__(f"Layer {layer_number}: tiempo de capa ({layer_time:.2f} min) excede el límite máximo ({t_max:.2f} min)")
 
 class MachineHandler: 
     
@@ -64,42 +74,61 @@ class MachineHandler:
         self.g_code += f'G{value} X{end_p.x:.3f} Y{end_p.y:.3f} Z{self.z:.3f} I{i:.3f} J{j:.3f} F{self.f} {extruder}\n'
         self.x, self.y = end_p.x, end_p.y
     
-    def generate_gcode(self, entity_list, i, max_height):
+    def generate_gcode(self, entity_list, i, max_height, t_min, t_max):
         """
         Generates the G-code file based on a list of entities.
 
         #### Args:
         - entity_list (list): List of entities containing G-code commands.
-        - file_name (str): Name of the file where the G-code will be written.
         - i (int): Current layer number.
         - max_height (float): Maximum printing height.
+        - t_min (float): Minimum time per layer in minutes.
+        - t_max (float): Maximum time per layer in minutes.
+
+        #### Raises:
+        - LayerTimeError: When layer time exceeds t_max.
 
         #### Modifies:
-        - self.g_code (str): Resets after writing each layer.
+        - self.g_code (str): Adds generated G-code instructions.
         - self.z (float): Updates the current Z position.
-
-        #### Writes:
-        - file_name: Writes the generated G-code to the specified file.
         """
         if (i == 0):
             self.g_code += 'G21    ; Set units to mm\nG90  ; Set absolute positioning mode\nM107    ; Turn off the fan\n'
             self.g_code += f'G28    ; Home all axes\nG1 Z{self.layers_thick}   ; First layer printing height\n'
+        
         self.g_code += f'; Layer {i}\n'
         self.z = self.layers_thick * i
         dfG0 = 0
         dfG1 = 0
+        
         for command in entity_list:
-            d1 = distance(self.x,self.y, command['param']['start'].x, command['param']['start'].y)
+            d1 = distance(self.x, self.y, command['param']['start'].x, command['param']['start'].y)
             dfG0 += d1
             self.disg0 += d1
             d2 = distance(command['param']['start'].x, command['param']['start'].y, command['param']['end'].x, command['param']['end'].y)
             dfG1 += d2
             self.disg1 += d2
+            
             if (command['command'] == 'G1'):
                 self._linear_move(command['param']['start'], command['param']['end'])
             elif (command['command'] == 'G2-3'):
                 self._arc_move(command['param']['start'], command['param']['end'], command['param']['i'], command['param']['j'], command['param']['value'])
+        
+
+        layer_time = (dfG0 / self.fG0) + (dfG1 / self.f)
+        
+
+        if layer_time > t_max:
+            raise LayerTimeError(layer_time, t_max, i)
+        elif layer_time < t_min and self.z != max_height:
+            dif = (t_min - layer_time) * 60  # Diferencia en segundos
+            self.g_code += f'G4 S{round(dif)} ;Wait till settle time\n'
+            print(f"Layer {i}: tiempo ajustado de {layer_time:.2f}min a {t_min:.2f}min")
+        
+        # Finalizar si es la última capa
         if (self.z == max_height):
-            self.g_code += ';End of file'
-            print(f'distancia g0 = {self.disg0} distancia g1 = {self.disg1} TIME G0 = {self.disg0 / self.fG0} TIME G1 = {self.disg1 / self.f}')
-            
+            self.g_code += ';End of file\n'
+            total_time = (self.disg0 / self.fG0) + (self.disg1 / self.f)
+            print(f'distancia g0 = {self.disg0} distancia g1 = {self.disg1}')
+            print(f'TIME G0 = {self.disg0 / self.fG0:.2f} TIME G1 = {self.disg1 / self.f:.2f}')
+            print(f'TOTAL TIME = {total_time:.2f} minutes')
