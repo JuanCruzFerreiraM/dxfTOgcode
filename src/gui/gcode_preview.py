@@ -97,14 +97,19 @@ class Preview(QWidget):
         file_path, _ = QFileDialog.getSaveFileName(
             self,
             "Guardar G-code",
+            "output.gcode",
             filter="Archivos G-code (*.gcode);;Todos los archivos (*)"
         )
 
+        if not file_path.lower().endswith('.gcode'):
+            file_path += '.gcode'
+        
         if file_path:
             try:
                 with open(file_path, "w") as file:
                     file.write(self.gcode_str)
                 QMessageBox.information(self, "Éxito", "Archivo guardado correctamente.")
+                self.parent_stack.setCurrentIndex(self.previous_index);
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"No se pudo guardar el archivo:\n{str(e)}")
 
