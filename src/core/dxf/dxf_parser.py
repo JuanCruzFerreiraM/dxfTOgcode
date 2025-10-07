@@ -1,29 +1,39 @@
 import ezdxf
 from ezdxf.math import OCS, Matrix44
 from src.core.gcode_generator import GcodeGenerator
+
+
 class FileError(Exception):
-    """Excepción personalizada para errores de archivo."""
+    """Exception raised for DXF file processing errors."""
     pass
 
+
 class UnsupportedEntityError(Exception):
-    """Excepción para entidades DXF no soportadas."""
+    """Exception raised for unsupported DXF entity types."""
+    
     def __init__(self, entity_type):
+        """Initialize with specific entity type that caused the error.
+        
+        Args:
+            entity_type (str): DXF entity type that is not supported
+        """
         super().__init__(f"Entidad DXF no soportada: {entity_type}")
         self.entity_type = entity_type
 
+
 def generate_entity_list(filename, gcode_generator):
-    """
-    Reads a DXF file and generates a list of entities for G-code generation.
+    """Read DXF file and generate entities for G-code generation.
 
-    #### Args:
-    - filename (str): Path to the DXF file to be processed.
-    - gcode_generator (GcodeGenerator): Instance of GcodeGenerator to store the generated entities.
+    Args:
+        filename (str): Path to the DXF file to process
+        gcode_generator (GcodeGenerator): Generator instance to store entities
 
-    #### Modifies:
-    - gcode_generator.entity_list (list): Adds the generated entities from the DXF file.
-
-    #### Raises:
-    - FileError: If the DXF file cannot be read or processed.
+    Raises:
+        FileError: If DXF file cannot be read or processed
+        UnsupportedEntityError: If file contains unsupported entity types
+        
+    Modifies:
+        gcode_generator.entity_list: Adds generated entities from DXF file
     """
     try:
         doc = ezdxf.readfile(filename)

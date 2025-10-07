@@ -3,7 +3,16 @@ import numpy as np
 
 
 def slicer(meshes_data, layer_height=20):
-    layer_height /= 1000  # mm a metros
+    """Slice 3D meshes into 2D cross-sections at regular height intervals.
+    
+    Args:
+        meshes_data (list): List of mesh dictionaries from IFC parser
+        layer_height (float): Height between slicing planes in mm
+        
+    Returns:
+        list: List of slice dictionaries containing Z-level and 2D sections
+    """
+    layer_height /= 1000
 
     min_z = min(obj["mesh"].bounds[0][2] for obj in meshes_data)
     max_z = max(obj["mesh"].bounds[1][2] for obj in meshes_data)
@@ -17,9 +26,8 @@ def slicer(meshes_data, layer_height=20):
 
         for obj in meshes_data:
             mesh = obj["mesh"]
-            zmin, zmax = mesh.bounds[:, 2]  # bounds[:,2] -> solo componente Z
+            zmin, zmax = mesh.bounds[:, 2]
 
-            # Optimización: descartar si el plano Z no toca el objeto
             if not (zmin <= z <= zmax):
                 continue
 

@@ -3,21 +3,30 @@ from src.utils.geometry import distance
 
 
 def get_polygon_entry_points(polygon_data):
-    """
-    Obtiene todos los puntos de entrada posibles para un polígono.
+    """Get all possible entry points for a polygon boundary.
+    
+    Args:
+        polygon_data (dict): Dictionary containing polygon boundary points
+        
+    Returns:
+        list: List of Vec3 points representing possible entry locations
     """
     return polygon_data["boundary_points"]
 
 
 def calculate_polygon_exit_point(polygon_data, entry_point):
-    """
-    Estima dónde terminará el recorrido de este polígono.
-    Para simplificar, usa el punto más lejano del punto de entrada.
+    """Estimate where polygon traversal will end based on entry point.
+    
+    Args:
+        polygon_data (dict): Dictionary containing polygon and fill data
+        entry_point (Vec3): Point where polygon traversal begins
+        
+    Returns:
+        Vec3: Estimated exit point (furthest point from entry)
     """
     all_points = polygon_data["boundary_points"]
     
     if polygon_data["fill_lines"]:
-        # Agregar puntos de fill
         for line in polygon_data["fill_lines"]:
             coords = list(line.coords)
             for coord in coords:
@@ -26,14 +35,19 @@ def calculate_polygon_exit_point(polygon_data, entry_point):
     if not all_points:
         return entry_point
     
-    # Punto más lejano del entry_point (aproximación del exit)
     exit_point = max(all_points, key=lambda p: p.distance(entry_point))
     return exit_point
 
 
 def find_optimal_polygon_sequence(layer_polygons, initial_point):
-    """
-    Encuentra la secuencia óptima de polígonos para minimizar G0.
+    """Find optimal polygon processing sequence to minimize travel movements.
+    
+    Args:
+        layer_polygons (list): List of polygon data dictionaries
+        initial_point (Vec3): Starting point for optimization
+        
+    Returns:
+        list: Optimized sequence of polygon processing steps
     """
     sequence = []
     remaining_polygons = list(enumerate(layer_polygons))
@@ -44,11 +58,8 @@ def find_optimal_polygon_sequence(layer_polygons, initial_point):
         best_entry_point = None
         best_distance = float('inf')
         
-        # Evaluar todos los polígonos restantes
         for i, (orig_idx, polygon_data) in enumerate(remaining_polygons):
             entry_points = get_polygon_entry_points(polygon_data)
-            
-            # Encontrar el mejor punto de entrada para este polígono
             closest_entry = min(entry_points, key=lambda p: p.distance(current_point))
             dist = closest_entry.distance(current_point)
             

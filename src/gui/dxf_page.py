@@ -1,6 +1,6 @@
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
-    QSpinBox, QDoubleSpinBox, QFileDialog, QMessageBox, QScrollArea  # ✅ Agregar QDoubleSpinBox aquí
+    QSpinBox, QDoubleSpinBox, QFileDialog, QMessageBox, QScrollArea
 )
 from PyQt6.QtGui import QIcon
 from PyQt6.QtCore import Qt
@@ -8,14 +8,22 @@ from src.core.app import dxf_script
 from src.core.dxf.dxf_parser import FileError, UnsupportedEntityError
 import traceback
 
-class DXFPage (QWidget):
+
+class DXFPage(QWidget):
+    """Widget for DXF file processing and G-code generation configuration."""
+    
     def __init__(self, parent_stack, parent_preview):
+        """Initialize DXF page with parameter controls and file selection.
+        
+        Args:
+            parent_stack (QStackedWidget): Parent stack widget for navigation
+            parent_preview (Preview): Preview widget for G-code display
+        """
         super().__init__()
         self.parent_stack = parent_stack
         self.parent_preview = parent_preview
         layout = QVBoxLayout()
         
-        # Form para seleccionar un archivo dxf
         form_layout = QHBoxLayout()
         
         form_label = QLabel('Seleccione el archivo dxf que quiere transformar')
@@ -30,7 +38,6 @@ class DXFPage (QWidget):
         form_button = QPushButton(QIcon("src/gui/icons/folder-open-regular.svg"), "", self)
         form_button.clicked.connect(self.open_file)
         form_button.setStyleSheet("""
-            
             QPushButton:hover {
                 background-color: #D6D6D6;
             }
@@ -39,7 +46,6 @@ class DXFPage (QWidget):
         
         layout.addLayout(form_layout)
         
-        # Parámetro de extrusion
         extruction_label = QLabel('Configurar Extrusion (E)')
         extruction_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         layout.addWidget(extruction_label)

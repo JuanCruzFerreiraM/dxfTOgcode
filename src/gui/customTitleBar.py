@@ -2,8 +2,20 @@ from PyQt6.QtWidgets import QWidget, QLabel, QPushButton, QHBoxLayout
 from PyQt6.QtGui import QIcon
 from PyQt6.QtCore import Qt, QSize
 
+
 class CustomTitleBar(QWidget):
+    """Custom window title bar widget with window controls.
+    
+    Provides a custom-styled title bar with close, minimize, and maximize buttons
+    for window management functionality.
+    """
+    
     def __init__(self, parent):
+        """Initialize custom title bar widget.
+        
+        Args:
+            parent (QWidget): Parent window widget
+        """
         super().__init__(parent)
         self.parent = parent
 
@@ -13,7 +25,6 @@ class CustomTitleBar(QWidget):
         title = QLabel("Generador G-code")
         title.setStyleSheet("font-weight: bold; font-size: 16px; padding-left: 10px;")
 
-        # Botón cerrar
         btn_close = QPushButton()
         btn_close.setIcon(QIcon("src/gui/icons/xmark-solid.svg"))
         btn_close.setIconSize(QSize(16, 16))
@@ -92,6 +103,10 @@ class CustomTitleBar(QWidget):
         self.setLayout(layout)
 
     def toggle_max_restore(self):
+        """Toggle window between maximized and normal states.
+        
+        Changes window state and updates the maximize/restore button icon accordingly.
+        """
         if self.parent.isMaximized():
             self.parent.showNormal()
             self.btn_resize.setIcon(QIcon("src/gui/icons/window-maximize-regular.svg"))

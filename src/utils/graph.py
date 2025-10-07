@@ -4,8 +4,14 @@ from ezdxf.math import Vec3
 
 
 def generate_graph(entity_list, tipo='outline'):
-    """
-    Crea subgrafos separados por componentes conexas, solo para entidades del tipo indicado.
+    """Create directed graph from entities of specified type.
+    
+    Args:
+        entity_list (list): List of entity dictionaries
+        tipo (str): Entity layer type to filter ('outline', 'fill', etc.)
+        
+    Returns:
+        list: List of subgraphs for each connected component
     """
     graph = nx.DiGraph()
     for value in entity_list:
@@ -21,13 +27,30 @@ def generate_graph(entity_list, tipo='outline'):
 
 
 def min_dis_sg(sg, reference_point):
+    """Find minimum distance from reference point to any node in subgraph.
+    
+    Args:
+        sg (networkx.DiGraph): Subgraph to search
+        reference_point (Vec3): Reference point for distance calculation
+        
+    Returns:
+        float: Minimum distance found
+    """
     return min(distance(p.x, p.y, reference_point.x, reference_point.y) for p in sg.nodes)
 
 
 def dfs(sg, node, order, visited, reverse=False):
-    """
-    Recorrido DFS con opción de reversa.
-    Devuelve también el último nodo visitado.
+    """Perform depth-first search traversal on subgraph.
+    
+    Args:
+        sg (networkx.DiGraph): Subgraph to traverse
+        node (Vec3): Starting node for traversal
+        order (list): List to accumulate entity IDs in traversal order
+        visited (list): List of already visited nodes
+        reverse (bool): Whether to reverse neighbor order
+        
+    Returns:
+        Vec3: Last node visited in traversal
     """
     if node in visited:
         return node
@@ -50,8 +73,13 @@ def dfs(sg, node, order, visited, reverse=False):
 
 
 def group_entities_by_outline(entity_list):
-    """
-    Agrupa entidades por outline_id para procesar outline+fill juntos.
+    """Group entities by outline_id to process outline+fill together.
+    
+    Args:
+        entity_list (list): List of entity dictionaries
+        
+    Returns:
+        dict: Dictionary mapping outline_id to grouped entities with centroid
     """
     groups = {}
     for entity in entity_list:
@@ -65,7 +93,6 @@ def group_entities_by_outline(entity_list):
         elif layer == 'fill':
             groups[outline_id]['fill'].append(entity)
     
-    # Calcular centroide de cada grupo UNA SOLA VEZ
     for outline_id, group in groups.items():
         all_points = []
         for entity in group['outline'] + group['fill']:
@@ -83,46 +110,42 @@ def group_entities_by_outline(entity_list):
 
 
 def traversal_order(entity_list, initial_point):
-    """
-    Algoritmo más simple: 
-    Después de completar cada polígono (outline+fill), buscar el centroide más cercano.
+    """Generate optimized traversal order by processing outline+fill groups.
+    
+    Args:
+        entity_list (list): List of entity dictionaries
+        initial_point (Vec3): Starting reference point
+        
+    Returns:
+        list: Ordered list of entity IDs for optimal traversal
     """
     final_order = []
     
-    # Agrupar entidades por outline_id
     groups = group_entities_by_outline(entity_list)
-    remaining_groups = dict(groups)  # Copia para ir eliminando
+    remaining_groups = dict(groups)
     current_point = initial_point
     
     while remaining_groups:
-        # Buscar el grupo más cercano por centroide
         closest_outline_id = min(remaining_groups.keys(),
                                key=lambda oid: remaining_groups[oid]['centroid'].distance(current_point))
         
-        # Procesar el grupo seleccionado
         group = remaining_groups.pop(closest_outline_id)
         
-        # 1. Procesar OUTLINE
         if group['outline']:
             outline_graphs = generate_graph(group['outline'], tipo='outline')
             
             for sg in outline_graphs:
-                # Empezar desde el nodo más cercano al punto actual
                 source = min(list(sg.nodes), key=lambda p: p.distance(current_point))
                 
-                # DFS para outline
                 order_normal = []
                 last_node_normal = dfs(sg, source, order_normal, [], reverse=False)
                 
                 final_order.extend(order_normal)
                 current_point = last_node_normal if order_normal else current_point
         
-        # 2. Procesar FILL inmediatamente después
         fill_ids = [entity['param']['id'] for entity in group['fill']]
         final_order.extend(fill_ids)
         
-        # 3. Actualizar punto actual al centroide del grupo completado
-        # (aproximación simple pero consistente)
         current_point = group['centroid']
     
     return final_order

@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
-# gcode_viewer_layers.py
-# Visualizador sencillo de G-code por capas (metros -> mm y redondeo).
-# Añadido: mostrar/guardar todas las capas (--show-all), guardar como PNGs o PDF.
+"""G-code visualization tool with layer-by-layer display and export capabilities.
+
+This module provides functionality to parse and visualize G-code files by layers,
+with options to export visualizations as PNG or PDF files.
+"""
 
 import re
 import sys
@@ -10,7 +12,7 @@ from collections import defaultdict
 import math
 import numpy as np
 import matplotlib
-matplotlib.use('Agg')  # backend no interactivo (útil para salvar muchas figuras)
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 import os
@@ -18,7 +20,17 @@ import os
 MOVE_RE = re.compile(r'^(?:G0|G1)\b', re.IGNORECASE)
 COORD_RE = re.compile(r'([XYZ])\s*([+-]?[0-9]*\.?[0-9]+(?:[eE][+-]?\d+)?)')
 
+
 def parse_gcode_moves(path, assume_units='meters'):
+    """Parse G-code file and extract movement coordinates.
+    
+    Args:
+        path (str): Path to G-code file
+        assume_units (str): Expected units in file ('meters' or 'mm')
+        
+    Returns:
+        list: List of tuples containing (X, Y, Z) coordinates
+    """
     moves = []
     cur = {'X': None, 'Y': None, 'Z': None}
     with open(path, 'r') as f:
@@ -35,7 +47,17 @@ def parse_gcode_moves(path, assume_units='meters'):
                     moves.append((cur['X'], cur['Y'], cur['Z']))
     return moves
 
+
 def group_moves_by_layer(moves, z_tol=1e-4):
+    """Group movement points by Z-layer within tolerance.
+    
+    Args:
+        moves (list): List of (X, Y, Z) coordinate tuples
+        z_tol (float): Tolerance for Z-layer grouping
+        
+    Returns:
+        dict: Dictionary mapping Z-heights to list of line segments
+    """
     layers = defaultdict(list)
     prev = (None, None, None)
     for pt in moves:
@@ -61,6 +83,16 @@ def group_moves_by_layer(moves, z_tol=1e-4):
     return dict(layers)
 
 def convert_and_round_segments(segments, to_mm=True, round_01mm=True):
+    """Convert coordinate units and round segments for visualization.
+    
+    Args:
+        segments (list): List of line segments as (x1, y1, x2, y2) tuples
+        to_mm (bool): Convert from meters to millimeters if True
+        round_01mm (bool): Round coordinates to 0.1mm precision if True
+        
+    Returns:
+        list: Processed list of line segments
+    """
     out = []
     for (x1,y1,x2,y2) in segments:
         if x1 is None or y1 is None or x2 is None or y2 is None:
@@ -74,7 +106,14 @@ def convert_and_round_segments(segments, to_mm=True, round_01mm=True):
         out.append((x1,y1,x2,y2))
     return out
 
+
 def plot_layer_to_axis(ax, segments):
+    """Plot line segments to matplotlib axis.
+    
+    Args:
+        ax (matplotlib.axes.Axes): Matplotlib axis object
+        segments (list): List of line segments to plot
+    """
     for (x1,y1,x2,y2) in segments:
         ax.plot([x1,x2],[y1,y2], linewidth=0.6)
     ax.set_aspect('equal', 'box')
@@ -82,6 +121,15 @@ def plot_layer_to_axis(ax, segments):
     ax.set_yticks([])
 
 def save_layer_image(segments, filename, figsize=(4,4), dpi=150, title=None):
+    """Save layer visualization as image file.
+    
+    Args:
+        segments (list): List of line segments to visualize
+        filename (str): Output filename for image
+        figsize (tuple): Figure size as (width, height) inches
+        dpi (int): Image resolution in dots per inch
+        title (str): Optional title for the plot
+    """
     fig, ax = plt.subplots(figsize=figsize)
     plot_layer_to_axis(ax, segments)
     if title:
@@ -90,7 +138,18 @@ def save_layer_image(segments, filename, figsize=(4,4), dpi=150, title=None):
     fig.savefig(filename, dpi=dpi, bbox_inches='tight')
     plt.close(fig)
 
+
 def save_all_layers_as_png(layers, out_dir, to_mm=True, round_01mm=True, thumb_size=(4,4), dpi=150):
+    """Export all layers as individual PNG files.
+    
+    Args:
+        layers (dict): Dictionary mapping Z-heights to segments
+        out_dir (str): Output directory for PNG files
+        to_mm (bool): Convert coordinates to millimeters
+        round_01mm (bool): Round coordinates to 0.1mm precision
+        thumb_size (tuple): Image size as (width, height) inches
+        dpi (int): Image resolution
+    """
     os.makedirs(out_dir, exist_ok=True)
     z_sorted = sorted(layers.keys())
     for i, z in enumerate(z_sorted):
@@ -99,10 +158,21 @@ def save_all_layers_as_png(layers, out_dir, to_mm=True, round_01mm=True, thumb_s
         fname = os.path.join(out_dir, f"layer_{i:04d}_z_{z:.6f}.png")
         save_layer_image(segs_conv, fname, figsize=thumb_size, dpi=dpi, title=f"Layer {i} Z={z:.6f}")
         if (i+1) % 50 == 0:
-            print(f"Guardadas {i+1}/{len(z_sorted)} capas...")
-    print(f"Todas las capas guardadas en: {os.path.abspath(out_dir)}")
+            print(f"Saved {i+1}/{len(z_sorted)} layers...")
+    print(f"All layers saved to: {os.path.abspath(out_dir)}")
+
 
 def save_all_layers_to_pdf(layers, pdf_path, to_mm=True, round_01mm=True, figsize=(6,6), dpi=150):
+    """Export all layers to single PDF file.
+    
+    Args:
+        layers (dict): Dictionary mapping Z-heights to segments
+        pdf_path (str): Output path for PDF file
+        to_mm (bool): Convert coordinates to millimeters
+        round_01mm (bool): Round coordinates to 0.1mm precision
+        figsize (tuple): Figure size as (width, height) inches
+        dpi (int): Image resolution
+    """
     z_sorted = sorted(layers.keys())
     with PdfPages(pdf_path) as pdf:
         for i, z in enumerate(z_sorted):

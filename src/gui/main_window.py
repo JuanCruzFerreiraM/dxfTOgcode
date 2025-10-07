@@ -3,24 +3,25 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QIcon
-from src.gui.nav_bar import NavigationBar      # ✅ Correcto
-from src.gui.dxf_page import DXFPage          # ✅ Correcto
-from src.gui.ifc_page import IFCPage          # ✅ Correcto (no gui.ifc_page)
-from src.gui.gcode_preview import Preview     # ✅ Correcto
+from src.gui.nav_bar import NavigationBar
+from src.gui.dxf_page import DXFPage
+from src.gui.ifc_page import IFCPage
+from src.gui.gcode_preview import Preview
 
 
 class MainWindow(QMainWindow):
+    """Main application window containing navigation and content pages."""
+    
     def __init__(self):
+        """Initialize main window with navigation bar and content stack."""
         super().__init__()
         
-        # Configuración básica con funcionalidad nativa
         self.setWindowTitle("Generador G-code")
-        self.setWindowIcon(QIcon("src/gui/icons/gcodegerator.ico"))  # Icono de ventana
+        self.setWindowIcon(QIcon("src/gui/icons/gcodegerator.ico"))
         self.setMinimumSize(800, 600)
-        self.resize(1200, 800)  # Tamaño inicial
+        self.resize(1200, 800)
         self.actIndex = 0
 
-        # === Contenedor central de la app ===
         self.nav_bar = NavigationBar(self.switch_page)
        
         self.stack = QStackedWidget()
@@ -38,7 +39,6 @@ class MainWindow(QMainWindow):
         self.divider.setLineWidth(2)
         self.divider.setStyleSheet("color: #2C3E50")
 
-        # Contenido visualmente limitado a 1200px y centrado
         content_wrapper = QWidget()
         content_layout = QVBoxLayout(content_wrapper)
         content_layout.setContentsMargins(10, 0, 0, 0)
@@ -55,18 +55,15 @@ class MainWindow(QMainWindow):
         center_layout.setAlignment(Qt.AlignmentFlag.AlignHCenter)
         center_layout.addWidget(content_wrapper)
 
-        # === Composición total (sin barra de título personalizada) ===
         container = QWidget()
         layout = QVBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 10)
         layout.setSpacing(0)
 
-        # Contenido de la app directamente
         layout.addWidget(content_center)
 
         self.setCentralWidget(container)
 
-        # Estilo general de la aplicación
         self.setStyleSheet("""
             QMainWindow {
                 background-color: #F5F7FA;
@@ -74,5 +71,10 @@ class MainWindow(QMainWindow):
         """)
 
     def switch_page(self, index: int):
+        """Switch to specified page in the content stack.
+        
+        Args:
+            index (int): Page index to switch to
+        """
         self.stack.setCurrentIndex(index)
         self.actIndex = index

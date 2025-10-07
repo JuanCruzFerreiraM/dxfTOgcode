@@ -2,10 +2,24 @@ import ifcopenshell
 import ifcopenshell.geom
 import trimesh
 
+
 class FileError(Exception):
+    """Exception raised for IFC file processing errors."""
     pass
 
+
 def ifc_parser(file_path):
+    """Parse IFC file and extract 3D mesh data from building elements.
+    
+    Args:
+        file_path (str): Path to IFC file to process
+        
+    Returns:
+        list: List of dictionaries containing mesh data, element ID, and type
+        
+    Raises:
+        FileError: If IFC file cannot be opened or processed
+    """
     try:
         ifc_file = ifcopenshell.open(file_path)
     except Exception as e:

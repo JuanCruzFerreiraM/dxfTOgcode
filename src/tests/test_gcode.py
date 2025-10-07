@@ -1,3 +1,9 @@
+"""Unit tests for G-code generation functionality.
+
+This module contains test cases for validating G-code entity creation,
+coordinate transformations, and generator behavior.
+"""
+
 from src.core.gcode_generator import GcodeGenerator
 from ezdxf.math import Vec3
 import math as m
@@ -5,20 +11,32 @@ from src.core.gcode_generator import InvalidPointError
 
 
 def compare_vec3(vec1, vec2, tol=1e-9):
+    """Compare two Vec3 objects for equality within tolerance.
+    
+    Args:
+        vec1 (Vec3): First vector to compare
+        vec2 (Vec3): Second vector to compare
+        tol (float): Tolerance for floating point comparison
+        
+    Returns:
+        bool: True if vectors are equal within tolerance
+    """
     return m.isclose(vec1.x, vec2.x, abs_tol=tol) and m.isclose(vec1.y, vec2.y, abs_tol=tol) and m.isclose(vec1.z, vec2.z, abs_tol=tol)
 
+
 def test_line_entity():
-        gcode = GcodeGenerator()
-        ps = Vec3(0,0,0)
-        pe = Vec3(1.0,1.0,0)
-        result = [{
-            'command': 'G1',
-            'param': {
-                'start': ps,
-                'end': pe,
-                'layer': 'contorno',
-                'id': 2
-            }
+    """Test line entity generation with G-code parameters."""
+    gcode = GcodeGenerator()
+    ps = Vec3(0,0,0)
+    pe = Vec3(1.0,1.0,0)
+    result = [{
+        'command': 'G1',
+        'param': {
+            'start': ps,
+            'end': pe,
+            'layer': 'contorno',
+            'id': 2
+        }
         }]
         gcode.line_entity(ps,pe,'contorno',2)
         assert gcode.entity_list == result

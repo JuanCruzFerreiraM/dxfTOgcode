@@ -1,4 +1,11 @@
 # -*- coding: utf-8 -*-
+"""Parameter generator for IFC polygon processing and fill pattern generation.
+
+This module provides functions for converting IFC slice data into optimized
+polygon representations with fill patterns, coordinate transformations,
+and geometric optimizations for 3D printing applications.
+"""
+
 from shapely.affinity import affine_transform, rotate, translate, scale
 from shapely.geometry import LineString, MultiLineString, Polygon, MultiPolygon
 from shapely.ops import unary_union
@@ -10,19 +17,27 @@ from matplotlib.patches import Polygon as MplPolygon
 from matplotlib.collections import PatchCollection
 from src.utils.debug_mpl import plot_polygon_layer_debug
 
-# -----------------------
-# Utilidades geométricas
-# -----------------------
 
 def convert_polygon_to_mm(polygon: Polygon) -> Polygon:
-    """
-    Convierte un polígono de metros a milímetros (multiplicar por 1000).
+    """Convert polygon coordinates from meters to millimeters.
+    
+    Args:
+        polygon (Polygon): Shapely polygon with coordinates in meters
+        
+    Returns:
+        Polygon: Scaled polygon with coordinates in millimeters
     """
     return scale(polygon, xfact=1000.0, yfact=1000.0, origin=(0, 0))
 
 def simplify_union_polygon(polygon: Polygon, tolerance=0.01) -> Polygon:
-    """
-    Simplifica un polígono unión para eliminar complejidad innecesaria.
+    """Simplify union polygon to remove unnecessary complexity.
+    
+    Args:
+        polygon (Polygon): Complex polygon to simplify
+        tolerance (float): Simplification tolerance in coordinate units
+        
+    Returns:
+        Polygon: Simplified polygon or convex hull if simplification fails
     """
     try:
         simplified = polygon.simplify(tolerance, preserve_topology=True)
@@ -33,9 +48,13 @@ def simplify_union_polygon(polygon: Polygon, tolerance=0.01) -> Polygon:
         return polygon
 
 def calculate_dominant_angle(polygon: Polygon) -> float:
-    """
-    Calcula el ángulo (en grados, 0° a 180°) del borde más largo del polígono,
-    medido respecto al eje X positivo.
+    """Calculate angle of longest polygon edge relative to positive X-axis.
+    
+    Args:
+        polygon (Polygon): Input polygon to analyze
+        
+    Returns:
+        float: Angle in degrees (0° to 180°) of dominant edge
     """
     longest = 0.0
     best_angle = 0.0
@@ -53,8 +72,13 @@ def calculate_dominant_angle(polygon: Polygon) -> float:
     return angle_deg
 
 def dominant_edge_direction(polygon: Polygon) -> str:
-    """
-    Determina si el zigzag debe ir en 'x' o 'y' según el borde más largo del polígono.
+    """Determine optimal zigzag direction based on polygon's longest edge.
+    
+    Args:
+        polygon (Polygon): Input polygon to analyze
+        
+    Returns:
+        str: 'x' for horizontal or 'y' for vertical zigzag direction
     """
     angle_deg = calculate_dominant_angle(polygon)
     if 45 <= abs(angle_deg) <= 135:
@@ -62,9 +86,14 @@ def dominant_edge_direction(polygon: Polygon) -> str:
     return 'x'
 
 def normalize_polygon_bounds(polygon: Polygon, tolerance=1e-7) -> Polygon:
-    """
-    Normaliza un polígono eliminando errores numéricos muy pequeños.
-    Ajustado para coordenadas en mm (tolerancia mayor).
+    """Normalize polygon coordinates to eliminate numerical errors.
+    
+    Args:
+        polygon (Polygon): Input polygon with potential numerical issues
+        tolerance (float): Threshold for considering values as zero
+        
+    Returns:
+        Polygon: Normalized polygon with rounded coordinates
     """
     if polygon.is_empty:
         return polygon
@@ -77,8 +106,8 @@ def normalize_polygon_bounds(polygon: Polygon, tolerance=1e-7) -> Polygon:
             x = 0.0
         if abs(y) < tolerance:
             y = 0.0
-        x = round(x, 3)  # 3 decimales para mm
-        y = round(y, 3)  # 3 decimales para mm
+        x = round(x, 3)
+        y = round(y, 3)
         normalized_coords.append((x, y))
     
     try:
@@ -90,6 +119,15 @@ def normalize_polygon_bounds(polygon: Polygon, tolerance=1e-7) -> Polygon:
         return polygon
 
 def _clip_polygon_by_offset(polygon: Polygon, offset: float) -> Polygon:
+    """Apply inward offset to polygon for fill boundary adjustment.
+    
+    Args:
+        polygon (Polygon): Input polygon to offset
+        offset (float): Inward offset distance (positive values shrink polygon)
+        
+    Returns:
+        Polygon: Offset polygon or original if offset results in empty geometry
+    """
     if offset and offset > 0:
         clipped = polygon.buffer(-offset)
         if clipped.is_empty:
@@ -97,10 +135,21 @@ def _clip_polygon_by_offset(polygon: Polygon, offset: float) -> Polygon:
         return clipped
     return polygon
 
-# -----------------------
-# Generador zigzag single-pass
-# -----------------------
+
 def generate_vzigzag_singlepass(polygon: Polygon, step=0.1, offset=0.0, global_shift=0.0, fill_rot_anlgle=0, v_angle=0):
+    """Generate vertical zigzag fill pattern for polygon with single-pass optimization.
+    
+    Args:
+        polygon (Polygon): Target polygon for fill generation
+        step (float): Base spacing between fill lines in mm
+        offset (float): Inward offset from polygon boundary in mm
+        global_shift (float): Global shift for pattern alignment
+        fill_rot_anlgle (int): Fill pattern rotation angle in degrees
+        v_angle (int): Vertical angle for angled fill patterns in degrees
+        
+    Returns:
+        list: List of LineString objects representing fill pattern
+    """
     v_angle_rad = np.radians(v_angle)
     if not polygon.is_valid:
         polygon = polygon.buffer(0)
@@ -167,10 +216,20 @@ def generate_vzigzag_singlepass(polygon: Polygon, step=0.1, offset=0.0, global_s
         results.extend(list(intersection.geoms))
     return results
 
-# -----------------------
-# Optimización global shift
-# -----------------------
+
 def optimize_global_shift_for_layer(sections, step=0.1, offset=0.0, n_shifts=20, v_angle=0):
+    """Optimize global pattern shift to maximize fill line coverage across layer.
+    
+    Args:
+        sections (list): List of polygon section dictionaries
+        step (float): Base fill line spacing in mm
+        offset (float): Inward offset from boundaries in mm
+        n_shifts (int): Number of shift values to test
+        v_angle (int): Vertical angle for fill patterns in degrees
+        
+    Returns:
+        dict: Optimal shift fractions for 'x' and 'y' directions
+    """
     shifts_frac = np.linspace(0.0, 1.0, n_shifts, endpoint=False)
     best = {'x': 0.0, 'y': 0.0}
     polys_by_dir = {'x': [], 'y': []}
@@ -211,18 +270,30 @@ def optimize_global_shift_for_layer(sections, step=0.1, offset=0.0, n_shifts=20,
         best[d] = best_frac
     return best
 
-# -----------------------
-# Extraer polígonos y aplicar relleno con superposición Z
-# -----------------------
+
 def extract_layer_polygons_with_fill(slices, step=0.1, offset=0.0, n_shifts=20, angle=0, v_angle=0, radius=0):
-    """
-    Extrae polígonos con su información de relleno, pero NO genera entidades.
-    Retorna solo los datos necesarios para optimización posterior.
-    IMPORTANTE: Convierte coordenadas de metros a milímetros.
+    """Extract polygons with fill information for layer processing optimization.
+    
+    Processes IFC slice data to generate optimized polygon representations with
+    fill patterns. Converts coordinates from meters to millimeters and applies
+    global shift optimization for consistent layer coverage.
+    
+    Args:
+        slices (list): List of layer slice dictionaries with polygon data
+        step (float): Base fill line spacing in mm
+        offset (float): Inward offset from polygon boundaries in mm
+        n_shifts (int): Number of shift values to test for optimization
+        angle (int): Fill pattern rotation angle in degrees
+        v_angle (int): Vertical angle for angled fill patterns in degrees
+        radius (float): Radius parameter for arc operations (unused in current implementation)
+        
+    Returns:
+        dict: Dictionary mapping Z-heights to lists of section data with polygons,
+              fill patterns, centroids, and boundary points in millimeter coordinates
     """
     layer_polygons = {}
     
-    # Recopilar todos los polígonos por element_type e element_id a través de todas las capas
+    # Collect all polygons by element_type and element_id across all layers
     all_polygons_by_element = {}
     for layer in slices:
         z = layer["z"]
@@ -242,7 +313,7 @@ def extract_layer_polygons_with_fill(slices, step=0.1, offset=0.0, n_shifts=20, 
                 if not transformed_polygon.is_valid:
                     transformed_polygon = transformed_polygon.buffer(0)
                 
-                # CONVERTIR DE METROS A MILÍMETROS
+                # Convert from meters to millimeters
                 transformed_polygon = convert_polygon_to_mm(transformed_polygon)
                 
                 key = f"{element_type}_{element_id}"
@@ -250,7 +321,7 @@ def extract_layer_polygons_with_fill(slices, step=0.1, offset=0.0, n_shifts=20, 
                     all_polygons_by_element[key] = []
                 all_polygons_by_element[key].append(transformed_polygon)
 
-    # Crear polígonos unión para cada elemento
+    # Create union polygons for each element
     base_patterns = {}
     union_polygons_for_optimization = []
     
@@ -266,7 +337,7 @@ def extract_layer_polygons_with_fill(slices, step=0.1, offset=0.0, n_shifts=20, 
                     union_polygon = max(union_polygon.geoms, key=lambda p: p.area)
                     union_polygon = normalize_polygon_bounds(union_polygon)
                 
-                # Área mínima ajustada para mm (step ya viene en mm)
+                # Minimum area adjusted for mm (step already in mm)
                 if union_polygon.area > (step**2) * 1e-3:
                     union_polygons_for_optimization.append({
                         "polygon": union_polygon, 
@@ -283,12 +354,12 @@ def extract_layer_polygons_with_fill(slices, step=0.1, offset=0.0, n_shifts=20, 
                         "id": element_id
                     })
     
-    # Calcular best_shifts
+    # Calculate best_shifts
     global_best_shifts = optimize_global_shift_for_layer(
         union_polygons_for_optimization, step=step, offset=offset, n_shifts=n_shifts, v_angle=v_angle
     )
     
-    # Generar patrones base
+    # Generate base patterns
     for sec in union_polygons_for_optimization:
         poly = sec['polygon']
         element_type = sec['type']
@@ -319,9 +390,9 @@ def extract_layer_polygons_with_fill(slices, step=0.1, offset=0.0, n_shifts=20, 
         )
         base_patterns[key] = base_pattern
 
-    # Aplicar patrones y retornar datos estructurados
+    # Apply patterns and return structured data
     for layer in slices:
-        z = layer["z"]  # z ya viene en mm desde slicer
+        z = layer["z"]  # z already in mm from slicer
         raw_sections = []
         
         for section in layer["sections"]:
@@ -340,7 +411,7 @@ def extract_layer_polygons_with_fill(slices, step=0.1, offset=0.0, n_shifts=20, 
                 if not transformed_polygon.is_valid:
                     transformed_polygon = transformed_polygon.buffer(0)
                 
-                # CONVERTIR DE METROS A MILÍMETROS
+                # Convert from meters to millimeters
                 transformed_polygon = convert_polygon_to_mm(transformed_polygon)
                 
                 raw_sections.append({"polygon": transformed_polygon, "type": element_type, "id": element_id})
@@ -351,7 +422,7 @@ def extract_layer_polygons_with_fill(slices, step=0.1, offset=0.0, n_shifts=20, 
             element_type = sec['type']
             element_id = sec['id']
             
-            # Calcular centroide y puntos de contorno (ya en mm)
+            # Calculate centroid and boundary points (already in mm)
             centroid = poly.centroid
             boundary_points = list(poly.exterior.coords)
             
@@ -360,8 +431,8 @@ def extract_layer_polygons_with_fill(slices, step=0.1, offset=0.0, n_shifts=20, 
                 "type": element_type, 
                 "id": element_id, 
                 "fill_lines": [],
-                "centroid": Vec3(centroid.x, centroid.y, z),  # z ya en mm
-                "boundary_points": [Vec3(p[0], p[1], z) for p in boundary_points]  # coordenadas en mm
+                "centroid": Vec3(centroid.x, centroid.y, z),  # z already in mm
+                "boundary_points": [Vec3(p[0], p[1], z) for p in boundary_points]  # coordinates in mm
             }
 
             if "wall" in element_type.lower() and poly.area > (step**2) * 1e-3:
