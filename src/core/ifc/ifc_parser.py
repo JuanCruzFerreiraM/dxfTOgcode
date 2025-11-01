@@ -11,14 +11,24 @@ import ifcopenshell
 import ifcopenshell.geom
 import trimesh
 import numpy as np
+from ifcopenshell.util import placement
 
 
-def calculate_trim_angle(trim1, trim2, global_center, transf_matrix): 
-    for trim_value in trim1:
-        if trim_value.is_a('IfcCartesianPoint'):
+def calculate_trim_angle(trim,global_center,transf_matrix, representation):
+    for trim_value in trim:
+        if trim_value.is_a('IfcCartesianPoint') and representation != 'PARAMETER':
             local_point = np.array(list(trim_value.Coordinates) + [1.0])
             global_point = tuple(np.dot(transf_matrix, local_point)[:3])
+            angle = np.atan2(global_point[1] - global_center[1], global_point[0] - global_center[0])
+            return angle
+        elif isinstance(trim_value, float):
+            alpha = (np.atan2(transf_matrix[1][0], transf_matrix[0][0]))
+            angle = trim_value + alpha
+            return angle 
+        else: 
+            continue     #En este caso se debería ignorar el angulo ? 
 
+ 
 
 def get_arc_parameters(item, transf_matrix):
     """
@@ -37,22 +47,30 @@ def get_arc_parameters(item, transf_matrix):
         global_center = tuple(np.dot(transf_matrix, center_point)[:3])
         initial_point = item.Trim1
         end_point = item.Trim2
+        representation = item.MasterRepresentation
         sense_agreement = item.SenseAgreement #El nombre no es tan explicativo pero sirve para determinar el sentido de giro
         data = {
             'radius': radius,
             'center_point': global_center,
-            'initial_point': initial_point, #Puede ser un angulo 
-            'end_point': end_point, #Puede ser un angulo 
-            'type_arc': type_arc
+            'initial_angle': calculate_trim_angle(initial_point, global_center, transf_matrix,representation),
+            'end_angle': calculate_trim_angle(end_point, global_center, transf_matrix,representation),
+            'sense': sense_agreement
         }
     else: 
         radius = item.Radius
-        center_point = item.Position.Location
+        center_point = np.array(list(item.Position.Location.Coordinates) + [1.0])
+        global_center = tuple(np.dot(transf_matrix, center_point)[:3])
+        initial_angle = 0.0
+        end_angle = 2 * np.pi
+        sense_agreement = True
         data = {
             'radius': radius,
-            'center_point': center_point,
-        }
-    return data
+            'center_point': global_center,
+            'initial_angle': initial_angle,
+            'end_angle': end_angle,
+            'sense': sense_agreement
+        }    
+        return data
 
 class FileError(Exception):
     """Exception raised for IFC file processing errors."""
