@@ -25,25 +25,36 @@ def slicer(meshes_data, layer_height=20):
         sections = []
 
         for obj in meshes_data:
-            mesh = obj["mesh"]
-            zmin, zmax = mesh.bounds[:, 2]
+            
+            if obj['type']  == 'ARC_WALL':
+                if z_rounded >= obj['height']:
+                            slices.append({
+                                "z": z_rounded,
+                                "type": 'Arc_Wall',
+                                'id': obj['id'],
+                                "sections": obj['segments']
+                            })
+            else: 
+                mesh = obj["mesh"]
+                zmin, zmax = mesh.bounds[:, 2]
 
-            if not (zmin <= z <= zmax):
-                continue
+                if not (zmin <= z <= zmax):
+                    continue
 
-            section = mesh.section(plane_origin=[0, 0, z], plane_normal=[0, 0, 1])
-            if section is not None:
-                path2d, tf = section.to_planar()
-                sections.append({
-                    "path": path2d,
-                    "tf": tf,
-                    "id": obj.get("id", None),
-                    "type": obj.get("type", None),
-                })
+                section = mesh.section(plane_origin=[0, 0, z], plane_normal=[0, 0, 1])
+                if section is not None:
+                    path2d, tf = section.to_planar()
+                    sections.append({
+                        "path": path2d,
+                        "tf": tf,
+                        "id": obj.get("id", None),
+                        "type": obj.get("type", None),
+                    })
 
-        slices.append({
-            "z": z_rounded,
-            "sections": sections
-        })
+            slices.append({
+                "z": z_rounded,
+                "type": 'Rect_Wall',
+                "sections": sections
+            })
 
     return slices
