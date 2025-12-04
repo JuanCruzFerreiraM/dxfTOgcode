@@ -92,3 +92,9 @@ def center_of_shape(points_list):
     x = sum(p.x for p in points_list) / n 
     y = sum(p.y for p in points_list) / n
     return Vec3(x, y, 0)
+
+def calculate_centroid_from_trims(trim1,trim2,z):
+    cx = (trim1[0] + trim2[0]) /2
+    cy = (trim1[1] + trim2[1]) /2
+    
+    return Vec3(cx,cy,z)

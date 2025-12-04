@@ -12,11 +12,116 @@ from shapely.ops import unary_union
 from ezdxf.math import Vec3
 import numpy as np
 import math
-import matplotlib.pyplot as plt
-from matplotlib.patches import Polygon as MplPolygon
-from matplotlib.collections import PatchCollection
-from src.utils.debug_mpl import plot_polygon_layer_debug
+from src.utils.geometry import calculate_centroid_from_trims
 
+def generate_arc_fill(transform_section,offset,v_angle):
+    """Generate polar zigzag fill pattern for arc-shaped wall segments.
+
+    Calculates a continuous zigzag path between inner and outer radius of an arc,
+    adjusting the angular step based on wall thickness and the desired V-angle
+    to maintain consistent pattern density.
+
+    Args:
+        transform_section (list): List of dictionaries containing arc geometry data
+                                  (center, radius, trims) in millimeters.
+        offset (float): Offset distance from the wall boundaries in mm.
+        v_angle (float): Angle of the zigzag pattern relative to the radius in degrees.
+
+    Returns:
+        tuple: A tuple containing:
+            - list: List of LineString objects representing the fill path.
+            - list/tuple: Coordinates of the first trim point.
+            - list/tuple: Coordinates of the second trim point.
+    """
+    radius_1, radius_2 = 0
+    trim_1,trim_2 = 0
+    center = 0
+    for section in transform_section:
+        if (section['type'] == 'ARC'):
+            if (radius_1 == 0): 
+                radius_1 = section['radius']
+            else:
+                radius_2 = section['radius']
+            center = section['center']
+            trim_1 = section['point_trim1']
+            trim_2 = section['point_trim2']
+            is_ccw = section['is_ccw']
+
+    if (radius_1 > radius_2):
+        r2 = radius_1 - offset
+        r1 = radius_2 + offset
+    else: 
+        r1 = radius_1 + offset
+        r2 = radius_2 - offset
+    
+        dx_1 = trim_1[0] - center[0]
+    dy_1 = trim_1[1] - center[1]    
+    dx_2 = trim_2[0] - center[0]
+    dy_2 = trim_2[1] - center[1]
+    
+
+    raw_angle1 = math.atan2(dy_1, dx_1)
+    raw_angle2 = math.atan2(dy_2, dx_2)
+    
+    if raw_angle1 < 0: raw_angle1 += 2 * math.pi
+    if raw_angle2 < 0: raw_angle2 += 2 * math.pi
+    
+    
+    alpha1 = raw_angle1
+    alpha2 = raw_angle2
+    
+
+    if is_ccw:
+        if alpha2 <= alpha1:
+            alpha2 += 2 * math.pi
+    else:
+
+        alpha1, alpha2 = alpha2, alpha1
+        if alpha2 <= alpha1:
+            alpha2 += 2 * math.pi
+    
+    avg_radius = (r1 + r2) / 2
+    e = r2 - r1
+    
+    angular_step = (e * math.tan(math.radians(v_angle))) / avg_radius
+    if angular_step < 0.01: angular_step = 0.01
+    
+    phi1 = alpha1
+    phi2 = alpha1 + angular_step
+    points = []
+
+    
+    while (phi1 < alpha2 and phi2 < alpha2):
+        p1 = (r1 * math.cos(phi1) + center[0], r1 * math.sin(phi1) + center[1])
+        p2 = (r2 * math.cos(phi2) + center[0], r2 * math.sin(phi2) + center[1])
+        points.append(p1)
+        points.append(p2)
+        phi1 = (phi1 + 2 * angular_step) if (phi1 + 2 * angular_step) < alpha2 else alpha2
+        phi2 = (phi2 + 2 * angular_step) if (phi2 + 2 * angular_step) < alpha2 else alpha2
+    
+    
+    return [LineString(points)], trim_1, trim_2
+
+def convert_arc_to_mm(arc_data: dict) -> dict:
+    transform_arc_data = []
+    for value in arc_data: 
+        if value['type'] == 'ARC':
+            transform_value = {
+                'center': value['center'] * 1000,
+                'is_ccw': value['is_ccw'],
+                'point_trim1': value['point_trim1'] * 1000,
+                'point_trim2': value['point_trim2'] * 1000,
+                'radius': value['radius'] * 1000,
+                'type': 'ARC'
+            }
+            transform_arc_data.append(transform_value)
+        elif value['type'] == 'LINE':
+            transform_value = {
+                'points': value['points'] * 1000,
+                'type': 'LINE'
+            }
+            transform_arc_data.append(transform_value)
+    return transform_arc_data
 
 def convert_polygon_to_mm(polygon: Polygon) -> Polygon:
     """Convert polygon coordinates from meters to millimeters.
@@ -134,7 +239,6 @@ def _clip_polygon_by_offset(polygon: Polygon, offset: float) -> Polygon:
             return polygon
         return clipped
     return polygon
-
 
 def generate_vzigzag_singlepass(polygon: Polygon, step=0.1, offset=0.0, global_shift=0.0, fill_rot_anlgle=0, v_angle=0):
     """Generate vertical zigzag fill pattern for polygon with single-pass optimization.
@@ -297,29 +401,33 @@ def extract_layer_polygons_with_fill(slices, step=0.1, offset=0.0, n_shifts=20, 
     all_polygons_by_element = {}
     for layer in slices:
         z = layer["z"]
-        for section in layer["sections"]:
-            path = section["path"]
-            transform = section["tf"]
-            element_type = section.get("type", "Unknown")
-            element_id = section.get("id", None)
-            affine_matrix = transform[:2, :2].flatten().tolist() + transform[:2, 3].tolist()
+        
+        
+        if (layer['type'] != 'Arc_Wall'):
+            for section in layer["sections"]:
 
-            for polygon in path.polygons_full:
-                if np.allclose(affine_matrix, [1,0,0,1,0,0]):
-                    transformed_polygon = polygon
-                else:
-                    transformed_polygon = affine_transform(polygon, affine_matrix)
-                
-                if not transformed_polygon.is_valid:
-                    transformed_polygon = transformed_polygon.buffer(0)
-                
-                # Convert from meters to millimeters
-                transformed_polygon = convert_polygon_to_mm(transformed_polygon)
-                
-                key = f"{element_type}_{element_id}"
-                if key not in all_polygons_by_element:
-                    all_polygons_by_element[key] = []
-                all_polygons_by_element[key].append(transformed_polygon)
+                path = section["path"]
+                transform = section["tf"]
+                element_type = section.get("type", "Unknown")
+                element_id = section.get("id", None)
+                affine_matrix = transform[:2, :2].flatten().tolist() + transform[:2, 3].tolist()
+
+                for polygon in path.polygons_full:
+                    if np.allclose(affine_matrix, [1,0,0,1,0,0]):
+                        transformed_polygon = polygon
+                    else:
+                        transformed_polygon = affine_transform(polygon, affine_matrix)
+
+                    if not transformed_polygon.is_valid:
+                        transformed_polygon = transformed_polygon.buffer(0)
+
+                    # Convert from meters to millimeters
+                    transformed_polygon = convert_polygon_to_mm(transformed_polygon)
+
+                    key = f"{element_type}_{element_id}"
+                    if key not in all_polygons_by_element:
+                        all_polygons_by_element[key] = []
+                    all_polygons_by_element[key].append(transformed_polygon)
 
     # Create union polygons for each element
     base_patterns = {}
@@ -394,6 +502,24 @@ def extract_layer_polygons_with_fill(slices, step=0.1, offset=0.0, n_shifts=20, 
     for layer in slices:
         z = layer["z"]  # z already in mm from slicer
         raw_sections = []
+        sections_data = []
+        
+        if (layer['type'] == 'Arc_Wall'):
+            transform_section = convert_arc_to_mm(layer['sections'])
+            
+            fill_arc_lines, trim1, trim2 = generate_arc_fill(transform_section,offset,v_angle);
+            arc_data = {
+                "polygon": None, 
+                "type": layer['type'], 
+                "id": layer['id'], 
+                "fill_lines": fill_arc_lines,
+                "is_arc": True,
+                "arc_data": transform_section,
+                "centroid": calculate_centroid_from_trims(trim1,trim2,z),  # z already in mm
+                "boundary_points": [trim1,trim2]
+            }
+            sections_data.append(arc_data)
+            continue
         
         for section in layer["sections"]:
             path = section["path"]
@@ -416,7 +542,7 @@ def extract_layer_polygons_with_fill(slices, step=0.1, offset=0.0, n_shifts=20, 
                 
                 raw_sections.append({"polygon": transformed_polygon, "type": element_type, "id": element_id})
 
-        sections_data = []
+        
         for sec in raw_sections:
             poly = sec['polygon']
             element_type = sec['type']
@@ -431,6 +557,7 @@ def extract_layer_polygons_with_fill(slices, step=0.1, offset=0.0, n_shifts=20, 
                 "type": element_type, 
                 "id": element_id, 
                 "fill_lines": [],
+                "is_arc": False,
                 "centroid": Vec3(centroid.x, centroid.y, z),  # z already in mm
                 "boundary_points": [Vec3(p[0], p[1], z) for p in boundary_points]  # coordinates in mm
             }
