@@ -508,6 +508,8 @@ def extract_layer_polygons_with_fill(slices, step=0.1, offset=0.0, n_shifts=20, 
             transform_section = convert_arc_to_mm(layer['sections'])
             
             fill_arc_lines, trim1, trim2 = generate_arc_fill(transform_section,offset,v_angle);
+            trim1_vec = Vec3(trim1[0], trim1[1], z)
+            trim2_vec = Vec3(trim2[0], trim2[1], z)
             arc_data = {
                 "polygon": None, 
                 "type": layer['type'], 
@@ -516,7 +518,7 @@ def extract_layer_polygons_with_fill(slices, step=0.1, offset=0.0, n_shifts=20, 
                 "is_arc": True,
                 "arc_data": transform_section,
                 "centroid": calculate_centroid_from_trims(trim1,trim2,z),  # z already in mm
-                "boundary_points": [trim1,trim2]
+                "boundary_points": [trim1_vec,trim2_vec]
             }
             sections_data.append(arc_data)
             continue
