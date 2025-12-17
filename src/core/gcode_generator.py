@@ -100,6 +100,78 @@ class GcodeGenerator:
                     self.id_entity_counter += 1
         
         return entities
+
+    def generate_arc_outline(self, arc_data_list, entry_point, z, layer, outline_id):
+        """Generate G-code entities for arc walls handling direction and G2/G3 commands.
+
+        Args:
+            arc_data_list (list): List of segment dictionaries (ARC or LINE)
+            entry_point (Vec3): Starting point determined by optimizer
+            z (float): Z-height for the layer
+            layer (str): Layer type identifier
+            outline_id (int): Unique identifier for this outline group
+
+        Returns:
+            list: List of G-code entity dictionaries for the arc wall
+        """
+        entities = []
+        
+        first_segment = arc_data_list[0]
+        if first_segment['type'] == 'LINE':
+            start_natural = Vec3(first_segment['points'][0][0], first_segment['points'][0][1], z)
+        else:
+            start_natural = Vec3(first_segment['point_trim1'][0], first_segment['point_trim1'][1], z)
+        
+        is_reversed = entry_point.distance(start_natural) > 1.0
+        
+        segments = reversed(arc_data_list) if is_reversed else arc_data_list
+        current_point = entry_point
+        
+        for segment in segments:
+            if segment['type'] == 'LINE':
+                p1 = Vec3(segment['points'][0][0], segment['points'][0][1], z)
+                p2 = Vec3(segment['points'][1][0], segment['points'][1][1], z)
+                
+                if current_point.distance(p1) < current_point.distance(p2):
+                    target = p2
+                else:
+                    target = p1
+                
+                entities.append({
+                    'command': 'G1',
+                    'param': {
+                        'start': current_point, 'end': target,
+                        'layer': layer, 'id': self.id_entity_counter, 'outline_id': outline_id
+                    }
+                })
+                self.id_entity_counter += 1
+                current_point = target
+
+            elif segment['type'] == 'ARC':
+                center = Vec3(segment['center'][0], segment['center'][1], z)
+                t1 = Vec3(segment['point_trim1'][0], segment['point_trim1'][1], z)
+                t2 = Vec3(segment['point_trim2'][0], segment['point_trim2'][1], z)
+                
+                target = t1 if is_reversed else t2
+                
+                i = center.x - current_point.x
+                j = center.y - current_point.y
+                
+                is_ccw_move = not segment['is_ccw'] if is_reversed else segment['is_ccw']
+                command_val = 3 if is_ccw_move else 2
+                
+                entities.append({
+                    'command': f'G{command_val}',
+                    'param': {
+                        'start': current_point, 'end': target,
+                        'i': i, 'j': j, 'value': command_val,
+                        'layer': layer, 'id': self.id_entity_counter, 'outline_id': outline_id
+                    }
+                })
+                self.id_entity_counter += 1
+                current_point = target
+                
+        return entities
     
     
     def generate_fill_entities(self, fill_lines, layer, outline_id, z):
@@ -159,13 +231,23 @@ class GcodeGenerator:
                 polygon_data_item = step['polygon_data']
                 entry_point = step['entry_point']
                 
-                polygon = polygon_data_item['polygon']
-                fill_lines = polygon_data_item.get('fill_lines', [])
                 outline_id = step['polygon_index']
+                fill_lines = polygon_data_item.get('fill_lines', [])
                 
-                outline_entities = self.generate_outline_from_point(
-                    polygon, entry_point, 'outline', outline_id
-                )
+                if polygon_data_item.get('is_arc', False):
+                    outline_entities = self.generate_arc_outline(
+                        polygon_data_item['arc_data'], 
+                        entry_point, 
+                        z, 
+                        'outline', 
+                        outline_id
+                    )
+                else:
+                    polygon = polygon_data_item['polygon']
+                    outline_entities = self.generate_outline_from_point(
+                        polygon, entry_point, 'outline', outline_id
+                    )
+                
                 self.entity_list.extend(outline_entities)
                 
                 fill_entities = self.generate_fill_entities(
@@ -174,6 +256,7 @@ class GcodeGenerator:
                 self.entity_list.extend(fill_entities)
         
         return self.entity_list
+
     
     
     def line_entity(self, start_point, end_point, layer, id, outline_id=-1):
