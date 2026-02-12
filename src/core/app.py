@@ -161,7 +161,7 @@ def ifc_script(path, e=0, layer_tick=0.0, feed_rate=0.0, feed_rate_g0=0.0, offse
     
     start = time.time()
     try:
-        sections = ifc_parser(path)
+        sections, openings_data = ifc_parser(path)
         meshes = slicer(sections, layer_tick)
     except Exception as ex:
         raise RuntimeError(f"Error al procesar el archivo IFC: {ex}") from ex
@@ -248,20 +248,28 @@ def ifc_script(path, e=0, layer_tick=0.0, feed_rate=0.0, feed_rate_g0=0.0, offse
     
     z_values = sorted(layer_entities.keys())
     layer_amount = len(z_values)
-    
+    layer_height_m = layer_tick / 1000.0
+    openings_ending = {
+        z: [o for o in openings_data if (z - layer_height_m < o["z_max"] <= z)]
+        for z in z_values
+    }
+
     print(f"[Info] Total de capas generadas: {layer_amount}")
     print(f"[Info] Total de entidades generadas: {len(entities)}")
-    
+
     start = time.time()
     machine = MachineHandler(
         f=feed_rate, fG0=feed_rate_g0, e=e, layer_thick=layer_tick, z_safe=z_safe,
         start_point=(corner_x, corner_y), start_description=corner_desc
     )
     error_flag = False
-    
+
     for i, z in enumerate(z_values):
-        try: 
-            machine.generate_gcode(layer_entities[z], i, (layer_amount - 1) * layer_tick, t_min, t_max)
+        try:
+            machine.generate_gcode(
+                layer_entities[z], i, (layer_amount - 1) * layer_tick, t_min, t_max,
+                openings_ending=openings_ending.get(z, [])
+            )
         except Exception as e: 
             error_flag = True
             raise RuntimeError(f'Error al generar el código G, tiempo de capa superado, revisar parámetros o modelo: {e}')

@@ -111,10 +111,13 @@ class MachineHandler:
 
         return radius * diff
     
-    def generate_gcode(self, entity_list, i, max_height, t_min, t_max):
+    def generate_gcode(self, entity_list, i, max_height, t_min, t_max, openings_ending=None):
         dfG0 = 0.0
         dfG1 = 0.0
-        
+
+        if openings_ending is None:
+            openings_ending = []
+
         if i == 0:
             self.g_code += f"G0 Z{self.layer_thick:.3f} F{self.fG0}\n"
             self.z = self.layer_thick
@@ -122,6 +125,11 @@ class MachineHandler:
             new_z = self.z + self.layer_thick
             self.g_code += f"G0 Z{new_z:.3f} F{self.fG0}\n"
             self.z = new_z
+
+        if openings_ending:
+            ids_str = ", ".join(f"{o['type']}({o['id']})" for o in openings_ending)
+            self.g_code += f"; Aca debe ir el comando antes de esta capa: finaliza(n) puerta(s)/ventana(s) - colocar placa/soporte (IDs: {ids_str})\n"
+            self.g_code += "; COMANDO_MARLIN\n"
 
         for entity in entity_list:
             command = entity['command']

@@ -153,6 +153,83 @@ class FileError(Exception):
     pass
 
 
+def _get_global_z_range(element, settings):
+    """Get global Z min/max of an IFC element from its geometry (meters). Returns (z_min, z_max) or None if failed."""
+    try:
+        shape = ifcopenshell.geom.create_shape(settings, element)
+        if not shape.geometry.verts:
+            return None
+        verts = shape.geometry.verts
+        z_vals = [verts[i] for i in range(2, len(verts), 3)]
+        return (min(z_vals), max(z_vals))
+    except Exception:
+        return None
+
+
+def _extract_openings_data(ifc_file, settings):
+    """Extract doors, windows and openings with global Z extent (meters) for layer-end commands.
+    Returns list of dicts: {"id": int, "type": str, "z_min": float, "z_max": float}.
+    """
+    openings_data = []
+    seen_filling_ids = set()
+    seen_opening_ids = set()
+
+    # IfcRelFillsElement: RelatedBuildingElement (door/window) fills RelatingOpeningElement (opening)
+    for rel in ifc_file.by_type("IfcRelFillsElement"):
+        try:
+            opening = rel.RelatingOpeningElement
+            filling = rel.RelatedBuildingElement
+            seen_filling_ids.add(filling.id())
+            seen_opening_ids.add(opening.id())
+        except Exception:
+            continue
+        z_range = _get_global_z_range(opening, settings)
+        if z_range is None:
+            z_range = _get_global_z_range(filling, settings)
+        if z_range is None:
+            continue
+        z_min, z_max = z_range
+        fill_type = filling.is_a() if filling else "IfcOpeningElement"
+        openings_data.append({
+            "id": opening.id(),
+            "type": fill_type,
+            "z_min": z_min,
+            "z_max": z_max,
+        })
+
+    # IfcOpeningElement not filled by a door/window
+    for element in ifc_file.by_type("IfcOpeningElement"):
+        if element.id() in seen_opening_ids:
+            continue
+        z_range = _get_global_z_range(element, settings)
+        if z_range is None:
+            continue
+        z_min, z_max = z_range
+        openings_data.append({
+            "id": element.id(),
+            "type": "IfcOpeningElement",
+            "z_min": z_min,
+            "z_max": z_max,
+        })
+
+    # Standalone IfcDoor / IfcWindow (not filling an opening already in the list)
+    for element in ifc_file.by_type("IfcDoor") + ifc_file.by_type("IfcWindow"):
+        if element.id() in seen_filling_ids:
+            continue
+        z_range = _get_global_z_range(element, settings)
+        if z_range is None:
+            continue
+        z_min, z_max = z_range
+        openings_data.append({
+            "id": element.id(),
+            "type": element.is_a(),
+            "z_min": z_min,
+            "z_max": z_max,
+        })
+
+    return openings_data
+
+
 def ifc_parser(file_path):
     """Parse IFC file and extract 3D mesh data from building elements.
     
@@ -245,8 +322,13 @@ def ifc_parser(file_path):
     
     print(f"[IFC PARSER] Debug guardado en ifc_parser_debug.txt")
     print(f"[IFC PARSER] {arc_detected_count} arcos, {arc_not_detected_count} meshes")
+
+    # Extraer puertas, ventanas y openings (huecos en muros) con extensión en Z para comandos por capa
+    openings_data = _extract_openings_data(ifc_file, settings)
+    if openings_data:
+        print(f"[IFC PARSER] {len(openings_data)} opening(s)/puerta(s)/ventana(s) detectados")
     
-    return meshes_data
+    return meshes_data, openings_data
 
 
 def debug_why_not_arc(element):
