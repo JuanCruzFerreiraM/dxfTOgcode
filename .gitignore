@@ -53,4 +53,9 @@ src/utils/generate_dxf.py
 capas_pdf/
 test_outputs/
 test_parser.py
-pps/ 
+pps/
+
+# Debug outputs
+debug_log.txt
+debug_output.gcode
+ifc_parser_debug.txt

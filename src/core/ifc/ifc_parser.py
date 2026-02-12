@@ -143,7 +143,8 @@ def extract_arc_info(element, transformation_matrix):
         'type': 'ARC_WALL', 
         'id': element.id(),
         'height': height,
-        'segments': segments_data
+        'segments': segments_data,
+        'mesh': None
     }            
                 
 
@@ -174,6 +175,15 @@ def ifc_parser(file_path):
 
     meshes_data = []
     allowed_types = {"IfcWall", "IfcWallStandardCase"}
+    
+    # Debug: escribir a archivo
+    debug_lines = []
+    debug_lines.append("=" * 60)
+    debug_lines.append("IFC PARSER DEBUG OUTPUT")
+    debug_lines.append("=" * 60)
+    
+    arc_detected_count = 0
+    arc_not_detected_count = 0
 
     for element in ifc_file.by_type("IfcProduct"):
         if element.is_a() not in allowed_types:
@@ -193,8 +203,15 @@ def ifc_parser(file_path):
             
             if curve_wall is not None: 
                 meshes_data.append(curve_wall)
+                arc_detected_count += 1
+                debug_lines.append(f"✓ Arc detectado: ID={element.id()}, Type={element.is_a()}")
                 
             else:
+                # Debug: intentar entender por qué no se detectó como arco
+                debug_msg = debug_why_not_arc(element)
+                debug_lines.append(debug_msg)
+                arc_not_detected_count += 1
+                
                 shape = ifcopenshell.geom.create_shape(settings, element)
 
                 if not shape.geometry.verts or not shape.geometry.faces:
@@ -217,6 +234,88 @@ def ifc_parser(file_path):
                 meshes_data.append(mesh_info)
 
         except Exception as e:
-            print(f"[IFC PARSER] Error procesando {element.GlobalId}: {e}")
+            debug_lines.append(f"ERROR procesando {element.GlobalId}: {e}")
 
+    debug_lines.append("")
+    debug_lines.append(f"RESUMEN: {arc_detected_count} arcos detectados, {arc_not_detected_count} elementos procesados como mesh")
+    
+    # Escribir debug a archivo
+    with open("ifc_parser_debug.txt", "w", encoding="utf-8") as f:
+        f.write("\n".join(debug_lines))
+    
+    print(f"[IFC PARSER] Debug guardado en ifc_parser_debug.txt")
+    print(f"[IFC PARSER] {arc_detected_count} arcos, {arc_not_detected_count} meshes")
+    
     return meshes_data
+
+
+def debug_why_not_arc(element):
+    """Debug function to understand why an element wasn't detected as arc."""
+    element_id = element.id()
+    element_type = element.is_a()
+    
+    # Buscar Body representation
+    body_rep = None
+    if element.Representation:
+        for rep in element.Representation.Representations:
+            if rep.RepresentationIdentifier == 'Body':
+                body_rep = rep
+                break
+    
+    if not body_rep:
+        return f"ID={element_id}: No Body representation"
+    
+    # Buscar extrusion
+    extrusion = None
+    for item in body_rep.Items:
+        if item.is_a('IfcExtrudedAreaSolid'):
+            extrusion = item
+            break
+    
+    if not extrusion:
+        return f"ID={element_id}: No IfcExtrudedAreaSolid. Items: {[i.is_a() for i in body_rep.Items]}"
+    
+    profile = extrusion.SweptArea
+    profile_type = profile.is_a()
+    
+    if not profile.is_a("IfcArbitraryClosedProfileDef"):
+        return f"ID={element_id}: Profile is {profile_type} (not IfcArbitraryClosedProfileDef)"
+    
+    curve = profile.OuterCurve
+    curve_type = curve.is_a()
+    
+    if not curve.is_a('IfcCompositeCurve'):
+        return f"ID={element_id}: OuterCurve is {curve_type} (not IfcCompositeCurve)"
+    
+    # Si llegamos aquí, tiene IfcCompositeCurve - veamos los segmentos
+    segment_info = []
+    has_arc = False
+    failed_reason = None
+    
+    for segment in curve.Segments:
+        parent = segment.ParentCurve
+        parent_type = parent.is_a()
+        
+        if parent.is_a('IfcTrimmedCurve'):
+            basis = parent.BasisCurve
+            basis_type = basis.is_a()
+            segment_info.append(f"TrimmedCurve({basis_type})")
+            if basis.is_a('IfcCircle'):
+                has_arc = True
+            else:
+                failed_reason = f"TrimmedCurve basis is {basis_type}, not IfcCircle"
+        elif parent.is_a('IfcPolyLine'):
+            num_points = len(parent.Points)
+            segment_info.append(f"PolyLine({num_points}pts)")
+        else:
+            segment_info.append(parent_type)
+            failed_reason = f"Segment type {parent_type} not supported"
+    
+    segments_str = ", ".join(segment_info)
+    
+    if has_arc and failed_reason:
+        return f"ID={element_id}: Has arc but failed: {failed_reason}. Segments: [{segments_str}]"
+    elif has_arc:
+        return f"ID={element_id}: ⚠ Has IfcCircle but extract_arc_info returned None! Segments: [{segments_str}]"
+    else:
+        return f"ID={element_id}: No IfcCircle. Segments: [{segments_str}]"

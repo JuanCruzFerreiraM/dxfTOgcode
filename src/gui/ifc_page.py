@@ -1,13 +1,20 @@
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
-    QDoubleSpinBox, QFileDialog, QMessageBox, QScrollArea, QProgressDialog
+    QDoubleSpinBox, QFileDialog, QMessageBox, QScrollArea, QProgressDialog,
+    QComboBox
 )
 from PyQt6.QtGui import QIcon
 from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal
 from src.core.app import ifc_script
 from src.core.dxf.dxf_parser import FileError, UnsupportedEntityError
-from src.core.machine_handler import LayerTimeError  # ✅ Agregar
+from src.core.machine_handler import LayerTimeError
 import traceback
+
+
+# ComboBox personalizado que ignora la rueda del mouse
+class NoWheelComboBox(QComboBox):
+    def wheelEvent(self, event):
+        event.ignore()
 
 
 # SpinBox personalizado que ignora la rueda del mouse
@@ -18,8 +25,8 @@ class NoWheelDoubleSpinBox(QDoubleSpinBox):
 
 
 # Worker en un hilo separado para ejecutar ifc_script sin bloquear la UI
-class IFCWorker(QThread):
-    finished = pyqtSignal(object, object)  # resultado, error
+class GcodeWorker(QThread):
+    finished = pyqtSignal(object, object)
 
     def __init__(self, params):
         super().__init__()
@@ -30,6 +37,12 @@ class IFCWorker(QThread):
             gcode = ifc_script(**self.params)
             self.finished.emit(gcode, None)
         except Exception as e:
+            # Log completo del error para debug
+            print("\n" + "="*60)
+            print("ERROR EN GENERACIÓN DE GCODE:")
+            print("="*60)
+            traceback.print_exc()
+            print("="*60 + "\n")
             self.finished.emit(None, e)
 
 
@@ -131,6 +144,32 @@ class IFCPage(QWidget):
         time_info.setStyleSheet("color: #C0392B; font-size: 12px;")
         layout.addWidget(time_info)
 
+        # Altura de seguridad Z
+        self.z_safe = self._add_spinbox(layout, "Altura de seguridad Z (viaje)", 5, 500, 20, 1, " mm")
+        z_safe_info = QLabel("ℹ️ Altura sobre la capa actual para movimientos de viaje. Debe superar cualquier obstáculo.")
+        z_safe_info.setStyleSheet("color: #2980B9; font-size: 12px;")
+        layout.addWidget(z_safe_info)
+
+        # Selector de punto de inicio
+        start_corner_label = QLabel('Punto de inicio de impresión')
+        start_corner_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        layout.addWidget(start_corner_label)
+        
+        self.start_corner = NoWheelComboBox()
+        self.start_corner.addItems([
+            "Inferior izquierda (0, 0)",
+            "Inferior derecha (X máx, 0)",
+            "Superior izquierda (0, Y máx)",
+            "Superior derecha (X máx, Y máx)",
+            "Automático (esquina más cercana al modelo)"
+        ])
+        self.start_corner.setCurrentIndex(0)  # Default: inferior izquierda
+        layout.addWidget(self.start_corner)
+        
+        start_corner_info = QLabel("ℹ️ Define dónde debe posicionarse la boquilla al iniciar.")
+        start_corner_info.setStyleSheet("color: #2980B9; font-size: 12px;")
+        layout.addWidget(start_corner_info)
+
         # Botón generar
         generate = QPushButton('Generar G-code')
         generate.clicked.connect(self.generate_gcode)
@@ -200,17 +239,28 @@ class IFCPage(QWidget):
             self.form_input.setText(file_path)
 
     def generate_gcode(self):
+        # Mapear índice del combo a valor para app.py
+        corner_map = {
+            0: "bottom_left",
+            1: "bottom_right",
+            2: "top_left",
+            3: "top_right",
+            4: "auto"
+        }
+        
         params = dict(
             path=self.form_input.text(),
             e=self.extrusion.value(),
             layer_tick=self.layerThickness.value(),
             feed_rate=self.feedRate.value(),
             feed_rate_g0=self.feedRateG0.value(),
-            offset=self.offsetFill.value(),
-            step=self.stepFill.value(),
+            offset=self.offsetFill.value() * 1000,  # Convertir m a mm
+            step=self.stepFill.value() * 1000,      # Convertir m a mm
             v_angle=self.v_angle.value(),
-            t_min=self.t_min.value(),          # ✅ Agregar
-            t_max=self.t_max.value()           # ✅ Agregar
+            t_min=self.t_min.value(),
+            t_max=self.t_max.value(),
+            z_safe=self.z_safe.value(),
+            start_corner=corner_map[self.start_corner.currentIndex()]
         )
 
         # Progress dialog estilo custom
@@ -234,7 +284,7 @@ class IFCPage(QWidget):
         self.progress.show()
 
         # Worker en segundo plano
-        self.worker = IFCWorker(params)
+        self.worker = GcodeWorker(params)
         self.worker.finished.connect(self.on_gcode_finished)
         self.worker.start()
 
@@ -268,7 +318,28 @@ class IFCPage(QWidget):
                 QMessageBox.critical(self, "Error inesperado", f"Se produjo un error inesperado:\n{str(error)}")
             return
 
-        self.parent_preview.setGcode(gcode)
+        # Extraer información del resultado
+        if isinstance(gcode, dict):
+            gcode_text = gcode['gcode']
+            start_info = gcode.get('start_point', {})
+            start_desc = gcode.get('start_description', 'No especificado')
+            
+            # Mostrar mensaje con punto de inicio si fue automático
+            if start_info:
+                QMessageBox.information(
+                    self,
+                    "G-code generado exitosamente",
+                    f"📍 PUNTO DE INICIO REQUERIDO:\n\n"
+                    f"   X = {start_info.get('x', 0):.2f} mm\n"
+                    f"   Y = {start_info.get('y', 0):.2f} mm\n\n"
+                    f"   Esquina: {start_desc}\n\n"
+                    f"Posicione la boquilla en estas coordenadas\n"
+                    f"antes de ejecutar el archivo."
+                )
+        else:
+            gcode_text = gcode
+
+        self.parent_preview.setGcode(gcode_text)
         self.parent_stack.setCurrentIndex(2)
 
     def on_timeout(self):

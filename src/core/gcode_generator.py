@@ -3,11 +3,21 @@ from math import sin, cos, radians, atan
 from src.utils.geometry import is_ccw, bulge_to_center, distance
 from src.utils.path_optimizer import optimize_layer_traversal
 import networkx as nx
+import warnings
 
 
 class InvalidPointError(Exception):
     """Exception raised for invalid point coordinates."""
     pass
+
+
+class PathContinuityWarning(UserWarning):
+    """Warning raised when path continuity issues are detected."""
+    pass
+
+
+# Tolerancia para considerar dos puntos como conectados (en mm)
+CONTINUITY_TOLERANCE = 0.5
 
 
 class GcodeGenerator:
@@ -18,6 +28,7 @@ class GcodeGenerator:
         self.entity_list = []
         self.id_entity_counter = 0
         self.dxf_reference_point = Vec3(0, 0, 0)
+        self.continuity_warnings = []  # Lista para acumular warnings
     
     
     def find_optimal_outline_start(self, polygon_coords, entry_point):
@@ -102,74 +113,87 @@ class GcodeGenerator:
         return entities
 
     def generate_arc_outline(self, arc_data_list, entry_point, z, layer, outline_id):
-        """Generate G-code entities for arc walls handling direction and G2/G3 commands.
-
-        Args:
-            arc_data_list (list): List of segment dictionaries (ARC or LINE)
-            entry_point (Vec3): Starting point determined by optimizer
-            z (float): Z-height for the layer
-            layer (str): Layer type identifier
-            outline_id (int): Unique identifier for this outline group
-
-        Returns:
-            list: List of G-code entity dictionaries for the arc wall
+        """Generate arc outline entities, ignoring LINE segments (trim lines).
+        
+        Las líneas de trim se ignoran porque en esquinas curvas conectadas a muros rectos,
+        esas líneas ya están cubiertas por los muros adyacentes. Esto evita sobreextrusión.
+        
+        Ambos arcos (interior y exterior) usan el mismo rango angular y la misma dirección,
+        definidos por el arco EXTERIOR (mayor radio).
         """
+        import math
+        
         entities = []
-        
-        first_segment = arc_data_list[0]
-        if first_segment['type'] == 'LINE':
-            start_natural = Vec3(first_segment['points'][0][0], first_segment['points'][0][1], z)
-        else:
-            start_natural = Vec3(first_segment['point_trim1'][0], first_segment['point_trim1'][1], z)
-        
-        is_reversed = entry_point.distance(start_natural) > 1.0
-        
-        segments = reversed(arc_data_list) if is_reversed else arc_data_list
-        current_point = entry_point
-        
-        for segment in segments:
-            if segment['type'] == 'LINE':
-                p1 = Vec3(segment['points'][0][0], segment['points'][0][1], z)
-                p2 = Vec3(segment['points'][1][0], segment['points'][1][1], z)
-                
-                if current_point.distance(p1) < current_point.distance(p2):
-                    target = p2
-                else:
-                    target = p1
-                
-                entities.append({
-                    'command': 'G1',
-                    'param': {
-                        'start': current_point, 'end': target,
-                        'layer': layer, 'id': self.id_entity_counter, 'outline_id': outline_id
-                    }
-                })
-                self.id_entity_counter += 1
-                current_point = target
+        if not arc_data_list:
+            return []
 
-            elif segment['type'] == 'ARC':
-                center = Vec3(segment['center'][0], segment['center'][1], z)
-                t1 = Vec3(segment['point_trim1'][0], segment['point_trim1'][1], z)
-                t2 = Vec3(segment['point_trim2'][0], segment['point_trim2'][1], z)
-                
-                target = t1 if is_reversed else t2
-                
-                i = center.x - current_point.x
-                j = center.y - current_point.y
-                
-                is_ccw_move = not segment['is_ccw'] if is_reversed else segment['is_ccw']
-                command_val = 3 if is_ccw_move else 2
-                
-                entities.append({
-                    'command': f'G{command_val}',
-                    'param': {
-                        'start': current_point, 'end': target,
-                        'i': i, 'j': j, 'value': command_val,
-                        'layer': layer, 'id': self.id_entity_counter, 'outline_id': outline_id
-                    }
-                })
-                self.id_entity_counter += 1
-                current_point = target
+        # Filtrar solo los arcos, ignorar las líneas de trim
+        arc_segments = [seg for seg in arc_data_list if seg['type'] == 'ARC']
+        
+        if not arc_segments:
+            return []
+
+        # Identificar arco exterior (mayor radio) para usar como referencia
+        arcs_sorted = sorted(arc_segments, key=lambda a: a['radius'], reverse=True)
+        outer_arc = arcs_sorted[0]
+        
+        # Obtener el centro (común a ambos arcos)
+        center = Vec3(outer_arc['center'][0], outer_arc['center'][1], z)
+        
+        # Calcular el rango angular desde los trim points del arco EXTERIOR
+        t1_outer = outer_arc['point_trim1']
+        t2_outer = outer_arc['point_trim2']
+        
+        dx1 = t1_outer[0] - outer_arc['center'][0]
+        dy1 = t1_outer[1] - outer_arc['center'][1]
+        dx2 = t2_outer[0] - outer_arc['center'][0]
+        dy2 = t2_outer[1] - outer_arc['center'][1]
+        
+        angle_trim1 = math.atan2(dy1, dx1)
+        angle_trim2 = math.atan2(dy2, dx2)
+        
+        # Usar la dirección del arco EXTERIOR para todos los arcos
+        outer_ccw = outer_arc.get('is_ccw', True)
+        
+        # Determinar dirección de entrada basada en proximidad
+        # Calculamos los puntos del arco exterior para decidir
+        outer_t1 = Vec3(t1_outer[0], t1_outer[1], z)
+        outer_t2 = Vec3(t2_outer[0], t2_outer[1], z)
+        is_reversed = entry_point.distance(outer_t2) < entry_point.distance(outer_t1)
+        
+        # Procesar arcos en orden (exterior primero, luego interior)
+        for segment in arcs_sorted:
+            radius = segment['radius']
+            
+            # Calcular los puntos de inicio y fin usando los MISMOS ángulos del exterior
+            p1_x = center.x + radius * math.cos(angle_trim1)
+            p1_y = center.y + radius * math.sin(angle_trim1)
+            p2_x = center.x + radius * math.cos(angle_trim2)
+            p2_y = center.y + radius * math.sin(angle_trim2)
+            
+            t1 = Vec3(p1_x, p1_y, z)
+            t2 = Vec3(p2_x, p2_y, z)
+            
+            # Definir Inicio y Fin físico según dirección
+            actual_start, target = (t2, t1) if is_reversed else (t1, t2)
+
+            # Calculamos I, J
+            i = center.x - actual_start.x
+            j = center.y - actual_start.y
+            
+            # TODOS los arcos usan la misma dirección (del exterior), ajustada por is_reversed
+            effective_ccw = outer_ccw != is_reversed  # XOR
+            
+            command = 'G3' if effective_ccw else 'G2'
+            
+            entities.append({
+                'command': command,
+                'param': {
+                    'start': actual_start, 'end': target, 'i': i, 'j': j,
+                    'layer': layer, 'id': self.id_entity_counter, 'outline_id': outline_id
+                }
+            })
+            self.id_entity_counter += 1
                 
         return entities
     
@@ -255,7 +279,58 @@ class GcodeGenerator:
                 )
                 self.entity_list.extend(fill_entities)
         
+        # Verificar continuidad del path y emitir warnings
+        self._check_path_continuity()
+        
         return self.entity_list
+
+    def _check_path_continuity(self):
+        """Verifica la continuidad del path y emite warnings si hay discontinuidades.
+        
+        Agrupa entidades por capa Z y verifica que dentro de cada grupo de outline,
+        el punto final de cada entidad coincida con el inicio de la siguiente.
+        """
+        if len(self.entity_list) < 2:
+            return
+        
+        # Agrupar por Z
+        entities_by_z = {}
+        for entity in self.entity_list:
+            z = round(entity['param']['start'].z, 3)
+            if z not in entities_by_z:
+                entities_by_z[z] = []
+            entities_by_z[z].append(entity)
+        
+        for z, entities in entities_by_z.items():
+            # Agrupar por outline_id
+            entities_by_outline = {}
+            for entity in entities:
+                oid = entity['param'].get('outline_id', -1)
+                if oid not in entities_by_outline:
+                    entities_by_outline[oid] = []
+                entities_by_outline[oid].append(entity)
+            
+            # Verificar continuidad dentro de cada outline
+            for oid, outline_entities in entities_by_outline.items():
+                if len(outline_entities) < 2:
+                    continue
+                
+                for i in range(len(outline_entities) - 1):
+                    current_end = outline_entities[i]['param']['end']
+                    next_start = outline_entities[i + 1]['param']['start']
+                    
+                    gap = current_end.distance(next_start)
+                    if gap > CONTINUITY_TOLERANCE:
+                        warning_msg = (
+                            f"[CONTINUIDAD] Z={z}mm, outline={oid}: "
+                            f"Gap de {gap:.2f}mm entre entidades {i} y {i+1}"
+                        )
+                        self.continuity_warnings.append(warning_msg)
+                        warnings.warn(warning_msg, PathContinuityWarning)
+    
+    def get_continuity_warnings(self):
+        """Retorna la lista de warnings de continuidad detectados."""
+        return self.continuity_warnings
 
     
     

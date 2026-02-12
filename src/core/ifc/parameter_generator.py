@@ -14,7 +14,7 @@ import numpy as np
 import math
 from src.utils.geometry import calculate_centroid_from_trims
 
-def generate_arc_fill(transform_section,offset,v_angle):
+def generate_arc_fill(transform_section,offset,v_angle, debug_info=None):
     """Generate polar zigzag fill pattern for arc-shaped wall segments.
 
     Calculates a continuous zigzag path between inner and outer radius of an arc,
@@ -26,6 +26,7 @@ def generate_arc_fill(transform_section,offset,v_angle):
                                   (center, radius, trims) in millimeters.
         offset (float): Offset distance from the wall boundaries in mm.
         v_angle (float): Angle of the zigzag pattern relative to the radius in degrees.
+        debug_info (dict, optional): Dictionary to store debug information.
 
     Returns:
         tuple: A tuple containing:
@@ -33,72 +34,152 @@ def generate_arc_fill(transform_section,offset,v_angle):
             - list/tuple: Coordinates of the first trim point.
             - list/tuple: Coordinates of the second trim point.
     """
-    radius_1, radius_2 = 0
-    trim_1,trim_2 = 0
-    center = 0
-    for section in transform_section:
-        if (section['type'] == 'ARC'):
-            if (radius_1 == 0): 
-                radius_1 = section['radius']
-            else:
-                radius_2 = section['radius']
-            center = section['center']
-            trim_1 = section['point_trim1']
-            trim_2 = section['point_trim2']
-            is_ccw = section['is_ccw']
-
-    if (radius_1 > radius_2):
-        r2 = radius_1 - offset
-        r1 = radius_2 + offset
-    else: 
-        r1 = radius_1 + offset
-        r2 = radius_2 - offset
+    # Recolectar todos los arcos
+    arcs = [s for s in transform_section if s['type'] == 'ARC']
     
-        dx_1 = trim_1[0] - center[0]
+    if len(arcs) < 2:
+        return [], (0,0), (0,0)
+    
+    # Identificar arco exterior (mayor radio) e interior (menor radio)
+    arcs_sorted = sorted(arcs, key=lambda a: a['radius'], reverse=True)
+    outer_arc = arcs_sorted[0]  # Mayor radio
+    inner_arc = arcs_sorted[1]  # Menor radio
+    
+    # Usar el centro (deberían ser iguales, pero por seguridad tomamos el del exterior)
+    center = outer_arc['center']
+    
+    # Radios con offset aplicado
+    r_outer = outer_arc['radius'] - offset  # Radio exterior reducido
+    r_inner = inner_arc['radius'] + offset  # Radio interior aumentado
+    
+    # Usar los trim points del arco EXTERIOR para definir el rango angular
+    trim_1 = outer_arc['point_trim1']
+    trim_2 = outer_arc['point_trim2']
+    is_ccw = outer_arc['is_ccw']
+    
+    dx_1 = trim_1[0] - center[0]
     dy_1 = trim_1[1] - center[1]    
     dx_2 = trim_2[0] - center[0]
     dy_2 = trim_2[1] - center[1]
     
-
     raw_angle1 = math.atan2(dy_1, dx_1)
     raw_angle2 = math.atan2(dy_2, dx_2)
     
-    if raw_angle1 < 0: raw_angle1 += 2 * math.pi
-    if raw_angle2 < 0: raw_angle2 += 2 * math.pi
+    # Normalizar ángulos a [0, 2π]
+    norm_angle1 = raw_angle1 if raw_angle1 >= 0 else raw_angle1 + 2 * math.pi
+    norm_angle2 = raw_angle2 if raw_angle2 >= 0 else raw_angle2 + 2 * math.pi
     
-    
-    alpha1 = raw_angle1
-    alpha2 = raw_angle2
-    
-
+    # Determinar el rango angular correcto según la dirección del arco
+    # El arco va de trim1 a trim2
     if is_ccw:
+        # Sentido antihorario: el ángulo aumenta
+        alpha1 = norm_angle1
+        alpha2 = norm_angle2
         if alpha2 <= alpha1:
             alpha2 += 2 * math.pi
     else:
-
-        alpha1, alpha2 = alpha2, alpha1
+        # Sentido horario: el ángulo disminuye, pero para el fill vamos en orden creciente
+        alpha1 = norm_angle2
+        alpha2 = norm_angle1
         if alpha2 <= alpha1:
             alpha2 += 2 * math.pi
     
-    avg_radius = (r1 + r2) / 2
-    e = r2 - r1
+    # Guardar debug info si se proporciona
+    if debug_info is not None:
+        debug_info['center'] = (center[0], center[1])
+        debug_info['r_outer'] = r_outer
+        debug_info['r_inner'] = r_inner
+        debug_info['trim1'] = (trim_1[0], trim_1[1])
+        debug_info['trim2'] = (trim_2[0], trim_2[1])
+        debug_info['is_ccw'] = is_ccw
+        debug_info['raw_angle1_deg'] = math.degrees(raw_angle1)
+        debug_info['raw_angle2_deg'] = math.degrees(raw_angle2)
+        debug_info['norm_angle1_deg'] = math.degrees(norm_angle1)
+        debug_info['norm_angle2_deg'] = math.degrees(norm_angle2)
+        debug_info['alpha1_deg'] = math.degrees(alpha1)
+        debug_info['alpha2_deg'] = math.degrees(alpha2)
     
-    angular_step = (e * math.tan(math.radians(v_angle))) / avg_radius
-    if angular_step < 0.01: angular_step = 0.01
+    avg_radius = (r_inner + r_outer) / 2
+    e = r_outer - r_inner
     
-    phi1 = alpha1
-    phi2 = alpha1 + angular_step
+    if e <= 0:
+        # Si el offset es mayor que el espesor del muro, no hay espacio para relleno
+        return [], trim_1, trim_2
+    
+    # Calcular offset angular para que el relleno no toque las líneas de trim
+    angular_offset = offset / avg_radius if avg_radius > 0 else 0
+    
+    # Reducir el rango angular por el offset en ambos extremos
+    alpha1_fill = alpha1 + angular_offset
+    alpha2_fill = alpha2 - angular_offset
+    
+    if debug_info is not None:
+        debug_info['angular_offset_deg'] = math.degrees(angular_offset)
+        debug_info['alpha1_fill_deg'] = math.degrees(alpha1_fill)
+        debug_info['alpha2_fill_deg'] = math.degrees(alpha2_fill)
+        debug_info['arc_span_deg'] = math.degrees(alpha2_fill - alpha1_fill)
+    
+    if alpha2_fill <= alpha1_fill:
+        return [], trim_1, trim_2
+    
+    # Calcular step angular basado en el espesor y v_angle
+    if v_angle != 0:
+        angular_step = (e * math.tan(math.radians(v_angle))) / avg_radius
+    else:
+        # Sin v_angle, usar un step que dé aproximadamente 10 líneas
+        angular_step = (alpha2_fill - alpha1_fill) / 10
+    
+    if angular_step < 0.01: 
+        angular_step = 0.01
+    
+    if debug_info is not None:
+        debug_info['angular_step_deg'] = math.degrees(angular_step)
+        debug_info['e'] = e
+    
     points = []
+    phi = alpha1_fill
+    going_out = True  # True = de interior a exterior
 
+    while phi < alpha2_fill:
+        if going_out:
+            # Punto en radio interior
+            p1 = (r_inner * math.cos(phi) + center[0], r_inner * math.sin(phi) + center[1])
+            points.append(p1)
+            # Avanzar al siguiente ángulo
+            next_phi = phi + angular_step
+            if next_phi > alpha2_fill:
+                next_phi = alpha2_fill
+            # Punto en radio exterior en el nuevo ángulo
+            p2 = (r_outer * math.cos(next_phi) + center[0], r_outer * math.sin(next_phi) + center[1])
+            points.append(p2)
+            phi = next_phi
+        else:
+            # Punto en radio exterior
+            p1 = (r_outer * math.cos(phi) + center[0], r_outer * math.sin(phi) + center[1])
+            points.append(p1)
+            # Avanzar al siguiente ángulo
+            next_phi = phi + angular_step
+            if next_phi > alpha2_fill:
+                next_phi = alpha2_fill
+            # Punto en radio interior en el nuevo ángulo
+            p2 = (r_inner * math.cos(next_phi) + center[0], r_inner * math.sin(next_phi) + center[1])
+            points.append(p2)
+            phi = next_phi
+        
+        going_out = not going_out
+        
+        # Evitar loop infinito si phi no avanza
+        if phi >= alpha2_fill:
+            break
     
-    while (phi1 < alpha2 and phi2 < alpha2):
-        p1 = (r1 * math.cos(phi1) + center[0], r1 * math.sin(phi1) + center[1])
-        p2 = (r2 * math.cos(phi2) + center[0], r2 * math.sin(phi2) + center[1])
-        points.append(p1)
-        points.append(p2)
-        phi1 = (phi1 + 2 * angular_step) if (phi1 + 2 * angular_step) < alpha2 else alpha2
-        phi2 = (phi2 + 2 * angular_step) if (phi2 + 2 * angular_step) < alpha2 else alpha2
+    if debug_info is not None:
+        debug_info['num_points'] = len(points)
+        if len(points) >= 2:
+            debug_info['first_point'] = points[0]
+            debug_info['last_point'] = points[-1]
     
+    if len(points) < 2:
+        return [], trim_1, trim_2
     
     return [LineString(points)], trim_1, trim_2
 
@@ -116,8 +197,13 @@ def convert_arc_to_mm(arc_data: dict) -> dict:
             }
             transform_arc_data.append(transform_value)
         elif value['type'] == 'LINE':
+            
+            scaled_points = [
+                (p[0] * 1000, p[1] * 1000, p[2] * 1000 if len(p) > 2 else 0) for p in value['points']
+            ]
+            
             transform_value = {
-                'points': value['points'] * 1000,
+                'points': scaled_points,
                 'type': 'LINE'
             }
             transform_arc_data.append(transform_value)
@@ -273,20 +359,37 @@ def generate_vzigzag_singlepass(polygon: Polygon, step=0.1, offset=0.0, global_s
     minx, miny, maxx, maxy = poly.bounds
     points = []
     toggle = True
+    
+    # Margen adicional para que el zigzag no toque las "tapas" del polígono
+    # en la dirección de barrido (start/end)
+    end_margin = offset * 0.5  # Medio offset de margen en los extremos
+    
+    # También aplicar margen en la dirección perpendicular (donde el zigzag hace sus picos)
+    perp_margin = offset * 0.3  # Margen para los picos del zigzag
 
     if direction == 'x':
         calc_step = (maxy - miny) * np.tan(v_angle_rad) if v_angle_rad != 0 else step
-        start = minx + global_shift - calc_step
-        while start <= maxx + calc_step:
-            y = maxy if toggle else miny
+        # Empezar después del margen y terminar antes
+        start = minx + end_margin + global_shift
+        end_limit = maxx - end_margin
+        # Aplicar margen perpendicular a los límites Y
+        y_low = miny + perp_margin
+        y_high = maxy - perp_margin
+        while start <= end_limit:
+            y = y_high if toggle else y_low
             points.append((start, y))
             toggle = not toggle
             start += calc_step
     else:
         calc_step = (maxx - minx) * np.tan(v_angle_rad) if v_angle_rad != 0 else step
-        start = miny + global_shift - calc_step
-        while start <= maxy + calc_step:
-            x = maxx if toggle else minx
+        # Empezar después del margen y terminar antes
+        start = miny + end_margin + global_shift
+        end_limit = maxy - end_margin
+        # Aplicar margen perpendicular a los límites X
+        x_low = minx + perp_margin
+        x_high = maxx - perp_margin
+        while start <= end_limit:
+            x = x_high if toggle else x_low
             points.append((x, start))
             toggle = not toggle
             start += calc_step
@@ -502,12 +605,26 @@ def extract_layer_polygons_with_fill(slices, step=0.1, offset=0.0, n_shifts=20, 
     for layer in slices:
         z = layer["z"]  # z already in mm from slicer
         raw_sections = []
-        sections_data = []
+        
+        # Obtener o crear lista para esta altura Z
+        if z not in layer_polygons:
+            layer_polygons[z] = []
+        sections_data = layer_polygons[z]
         
         if (layer['type'] == 'Arc_Wall'):
             transform_section = convert_arc_to_mm(layer['sections'])
             
-            fill_arc_lines, trim1, trim2 = generate_arc_fill(transform_section,offset,v_angle);
+            # Debug info para arc fill
+            arc_debug_info = {}
+            fill_arc_lines, trim1, trim2 = generate_arc_fill(transform_section,offset,v_angle, debug_info=arc_debug_info)
+            
+            # Log debug info si está habilitado
+            import sys
+            print(f"\n=== ARC FILL DEBUG (ID: {layer['id']}, Z={z}) ===", file=sys.stderr)
+            for key, value in arc_debug_info.items():
+                print(f"  {key}: {value}", file=sys.stderr)
+            print(f"==========================================\n", file=sys.stderr)
+            
             trim1_vec = Vec3(trim1[0], trim1[1], z)
             trim2_vec = Vec3(trim2[0], trim2[1], z)
             arc_data = {
@@ -521,67 +638,70 @@ def extract_layer_polygons_with_fill(slices, step=0.1, offset=0.0, n_shifts=20, 
                 "boundary_points": [trim1_vec,trim2_vec]
             }
             sections_data.append(arc_data)
-            continue
+        else: 
         
-        for section in layer["sections"]:
-            path = section["path"]
-            transform = section["tf"]
-            element_type = section.get("type", "Unknown")
-            element_id = section.get("id", None)
-            affine_matrix = transform[:2, :2].flatten().tolist() + transform[:2, 3].tolist()
+            for section in layer["sections"]:
+                path = section["path"]
+                transform = section["tf"]
+                element_type = section.get("type", "Unknown")
+                element_id = section.get("id", None)
+                affine_matrix = transform[:2, :2].flatten().tolist() + transform[:2, 3].tolist()
 
-            for polygon in path.polygons_full:
-                if np.allclose(affine_matrix, [1,0,0,1,0,0]):
-                    transformed_polygon = polygon
-                else:
-                    transformed_polygon = affine_transform(polygon, affine_matrix)
-                
-                if not transformed_polygon.is_valid:
-                    transformed_polygon = transformed_polygon.buffer(0)
-                
-                # Convert from meters to millimeters
-                transformed_polygon = convert_polygon_to_mm(transformed_polygon)
-                
-                raw_sections.append({"polygon": transformed_polygon, "type": element_type, "id": element_id})
+                for polygon in path.polygons_full:
+                    if np.allclose(affine_matrix, [1,0,0,1,0,0]):
+                        transformed_polygon = polygon
+                    else:
+                        transformed_polygon = affine_transform(polygon, affine_matrix)
 
+                    if not transformed_polygon.is_valid:
+                        transformed_polygon = transformed_polygon.buffer(0)
+
+                    # Convert from meters to millimeters
+                    transformed_polygon = convert_polygon_to_mm(transformed_polygon)
+
+                    raw_sections.append({"polygon": transformed_polygon, "type": element_type, "id": element_id})
+
+
+            for sec in raw_sections:
+                poly = sec['polygon']
+                element_type = sec['type']
+                element_id = sec['id']
+
+                # Calculate centroid and boundary points (already in mm)
+                centroid = poly.centroid
+                boundary_points = list(poly.exterior.coords)
+
+                data = {
+                    "polygon": poly, 
+                    "type": element_type, 
+                    "id": element_id, 
+                    "fill_lines": [],
+                    "is_arc": False,
+                    "centroid": Vec3(centroid.x, centroid.y, z),  # z already in mm
+                    "boundary_points": [Vec3(p[0], p[1], z) for p in boundary_points]  # coordinates in mm
+                }
+
+                if "wall" in element_type.lower() and poly.area > (step**2) * 1e-3:
+                    key = f"{element_type}_{element_id}"
+
+                    if key in base_patterns:
+                        base_pattern = base_patterns[key]
+                        fill_lines = []
+                        poly_offset = _clip_polygon_by_offset(poly, offset)
+
+                        if not poly_offset.is_empty:
+                            for line in base_pattern:
+                                intersection = poly_offset.intersection(line)
+                                if not intersection.is_empty:
+                                    if isinstance(intersection, LineString):
+                                        fill_lines.append(intersection)
+                                    elif isinstance(intersection, MultiLineString):
+                                        fill_lines.extend(list(intersection.geoms))
+
+                        data["fill_lines"] = fill_lines
+            
+                sections_data.append(data)
         
-        for sec in raw_sections:
-            poly = sec['polygon']
-            element_type = sec['type']
-            element_id = sec['id']
-            
-            # Calculate centroid and boundary points (already in mm)
-            centroid = poly.centroid
-            boundary_points = list(poly.exterior.coords)
-            
-            data = {
-                "polygon": poly, 
-                "type": element_type, 
-                "id": element_id, 
-                "fill_lines": [],
-                "is_arc": False,
-                "centroid": Vec3(centroid.x, centroid.y, z),  # z already in mm
-                "boundary_points": [Vec3(p[0], p[1], z) for p in boundary_points]  # coordinates in mm
-            }
-
-            if "wall" in element_type.lower() and poly.area > (step**2) * 1e-3:
-                key = f"{element_type}_{element_id}"
-                
-                if key in base_patterns:
-                    base_pattern = base_patterns[key]
-                    fill_lines = []
-                    
-                    for line in base_pattern:
-                        intersection = poly.intersection(line)
-                        if not intersection.is_empty:
-                            if isinstance(intersection, LineString):
-                                fill_lines.append(intersection)
-                            elif isinstance(intersection, MultiLineString):
-                                fill_lines.extend(list(intersection.geoms))
-                    
-                    data["fill_lines"] = fill_lines
-            
-            sections_data.append(data)
-        layer_polygons[z] = sections_data
+        # sections_data ya está referenciado a layer_polygons[z], no es necesario reasignar
     
     return layer_polygons

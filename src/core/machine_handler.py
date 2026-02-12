@@ -1,18 +1,10 @@
-from src.utils.geometry import distance
 import math
-
+from src.utils.geometry import distance
 
 class LayerTimeError(Exception):
     """Exception raised when layer time exceeds maximum limit."""
     
     def __init__(self, layer_time, t_max, layer_number):
-        """Initialize LayerTimeError exception.
-        
-        Args:
-            layer_time (float): Actual layer time in minutes
-            t_max (float): Maximum allowed layer time in minutes
-            layer_number (int): Layer number that exceeded the limit
-        """
         self.layer_time = layer_time
         self.t_max = t_max
         self.layer_number = layer_number
@@ -22,115 +14,145 @@ class LayerTimeError(Exception):
 class MachineHandler:
     """Handles G-code generation for 3D printer movements and operations."""
     
-    def __init__(self, x=0, y=0, z=0, f=2500, fG0=2500, e=0, layer_thick=1):
-        """Initialize MachineHandler with printer parameters.
+    def __init__(self, x=0, y=0, z=0, f=2500, fG0=2500, e=0, layer_thick=1, z_safe=20.0,
+                 start_point=None, start_description="No especificado"):
+        """Initialize MachineHandler.
         
         Args:
-            x (float): Initial X coordinate position
-            y (float): Initial Y coordinate position  
-            z (float): Initial Z coordinate position
-            f (int): Print feed rate in mm/min
-            fG0 (int): Travel feed rate in mm/min
-            e (float): Extrusion amount per mm
-            layer_thick (float): Layer thickness in mm
+            x, y, z: Initial position
+            f: Print feed rate (mm/min)
+            fG0: Travel feed rate (mm/min)
+            e: Extrusion factor
+            layer_thick: Layer thickness (mm)
+            z_safe: Safe Z height for travel moves (mm). Must be higher than tallest printed feature.
+            start_point: Tuple (x, y) with the starting point coordinates
+            start_description: Human-readable description of the starting corner
         """
-        self.g_code = ''
+        # Construir header con información del punto de inicio
+        start_info = ""
+        if start_point:
+            start_info = (
+                "; ================================================\n"
+                f"; PUNTO DE INICIO REQUERIDO:\n"
+                f";   X = {start_point[0]:.2f} mm\n"
+                f";   Y = {start_point[1]:.2f} mm\n"
+                f";   Esquina: {start_description}\n"
+                "; \n"
+                "; Posicione la boquilla en estas coordenadas\n"
+                "; antes de ejecutar este archivo.\n"
+                "; ================================================\n"
+            )
+        
+        self.g_code = (
+            "G21    ; Set units to mm\n"
+            "G90    ; Set absolute positioning mode\n"
+            f"{start_info}"
+            "M107   ; Turn off the fan\n"
+            "G28    ; Home all axes\n"
+            "G1 Z20.0 ; First layer printing height\n"
+        )
         self.x = x
         self.y = y
         self.z = z
         self.f = f
-        self.e = e
         self.fG0 = fG0
-        self.layers_thick = layer_thick
-        self.disg0 = 0
-        self.disg1 = 0
-        
- 
+        self.e = e
+        self.layer_thick = layer_thick
+        self.z_safe = z_safe  # Altura de seguridad para movimientos de viaje
+        # Inicializar contadores totales
+        self.total_g0 = 0.0
+        self.total_g1 = 0.0
+
     def _linear_move(self, start_p, end_p):
-        """Generate G-code for linear movement between two points.
+        """Generate G1 linear movement command."""
+        # CORRECCIÓN: Pasar coordenadas separadas (x1, y1, x2, y2)
+        dist = distance(start_p.x, start_p.y, end_p.x, end_p.y)
         
-        Args:
-            start_p (Vec3): Starting point coordinates
-            end_p (Vec3): Ending point coordinates
-            
-        Modifies:
-            self.g_code (str): Appends generated G-code instructions
-            self.x (float): Updates current X position
-            self.y (float): Updates current Y position
-        """
-        extruder = f'E{self.e}' if self.e != 0 else ''
+        e_val = dist * self.e * self.layer_thick
         
-        if not ((self.x == start_p.x) and (self.y == start_p.y)):
-            self.g_code += f'G0 Z{self.z + 0.5:.3f} F{self.fG0}\n'
-            self.g_code += f'G0 X{start_p.x:.3f} Y{start_p.y:.3f}\n'
-            self.g_code += f'G0 Z{self.z:.3f} F{self.fG0}\n'
+        self.g_code += f"G1 X{end_p.x:.5f} Y{end_p.y:.5f} F{self.f} E{e_val:.5f}\n"
         
-        self.g_code += f'G1 X{end_p.x:.3f} Y{end_p.y:.3f} Z{self.z:.3f} F{self.f} {extruder}\n'
-        self.x, self.y = end_p.x, end_p.y
-    
-    def _arc_move(self, start_p, end_p, i, j, value):
-        """Generate G-code for arc movement between two points.
+        self.x = end_p.x
+        self.y = end_p.y
+        return dist
+
+    def _arc_move(self, start_p, end_p, i, j, command):
+        """Generate G2/G3 arc movement command."""
+        arc_len = self._calculate_arc_length(start_p, end_p, i, j, command)
         
-        Args:
-            start_p (Vec3): Starting point coordinates
-            end_p (Vec3): Ending point coordinates
-            i (float): X offset from start point to arc center
-            j (float): Y offset from start point to arc center
-            value (int): Arc direction (2 for clockwise, 3 for counter-clockwise)
-            
-        Modifies:
-            self.g_code (str): Appends generated G-code instructions
-            self.x (float): Updates current X position
-            self.y (float): Updates current Y position
-        """
-        extruder = f'E{self.e}' if self.e != 0 else ''
+        e_val = arc_len * self.e * self.layer_thick
         
-        if not ((self.x == start_p.x) and (self.y == start_p.y)):
-            self.g_code += f'G0 X{start_p.x:.3f} Y{start_p.y:.3f} Z{self.z + 0.5:.3f} F{self.fG0}\n'
+        self.g_code += f"{command} X{end_p.x:.5f} Y{end_p.y:.5f} I{i:.5f} J{j:.5f} F{self.f} E{e_val:.5f}\n"
         
-        self.g_code += f'G{value} X{end_p.x:.3f} Y{end_p.y:.3f} Z{self.z:.3f} I{i:.3f} J{j:.3f} F{self.f} {extruder}\n'
-        self.x, self.y = end_p.x, end_p.y
+        self.x = end_p.x
+        self.y = end_p.y
+        return arc_len
+
+    def _calculate_arc_length(self, start_p, end_p, i, j, command):
+        radius = math.sqrt(i**2 + j**2)
+        if radius < 1e-5:
+            return 0.0
+
+        center_x = start_p.x + i
+        center_y = start_p.y + j
+
+        start_angle = math.atan2(start_p.y - center_y, start_p.x - center_x)
+        end_angle = math.atan2(end_p.y - center_y, end_p.x - center_x)
+
+        diff = end_angle - start_angle
+
+        if command == 'G3':  # CCW
+            if diff <= 0:
+                diff += 2 * math.pi
+        else:  # G2 - CW
+            if diff >= 0:
+                diff -= 2 * math.pi
+            diff = abs(diff)
+
+        return radius * diff
     
     def generate_gcode(self, entity_list, i, max_height, t_min, t_max):
-        """Generate G-code for a layer from entity commands.
+        dfG0 = 0.0
+        dfG1 = 0.0
         
-        Args:
-            entity_list (list): List of movement commands with parameters
-            i (int): Current layer number
-            max_height (float): Maximum print height
-            t_min (float): Minimum layer time in minutes
-            t_max (float): Maximum layer time in minutes
-            
-        Raises:
-            LayerTimeError: When layer time exceeds t_max
-            
-        Modifies:
-            self.g_code (str): Appends generated G-code instructions
-            self.z (float): Updates current Z position
-        """
         if i == 0:
-            self.g_code += 'G21    ; Set units to mm\nG90  ; Set absolute positioning mode\nM107    ; Turn off the fan\n'
-            self.g_code += f'G28    ; Home all axes\nG1 Z{self.layers_thick}   ; First layer printing height\n'
-        
-        self.g_code += f'; Layer {i}\n'
-        self.z = self.layers_thick * i
-        dfG0 = 0
-        dfG1 = 0
-        
-        for command in entity_list:
-            d1 = distance(self.x, self.y, command['param']['start'].x, command['param']['start'].y)
-            dfG0 += d1
-            self.disg0 += d1
-            d2 = distance(command['param']['start'].x, command['param']['start'].y, command['param']['end'].x, command['param']['end'].y)
-            dfG1 += d2
-            self.disg1 += d2
-            
-            if command['command'] == 'G1':
-                self._linear_move(command['param']['start'], command['param']['end'])
-            elif command['command'] == 'G2-3':
-                self._arc_move(command['param']['start'], command['param']['end'], command['param']['i'], command['param']['j'], command['param']['value'])
+            self.g_code += f"G0 Z{self.layer_thick:.3f} F{self.fG0}\n"
+            self.z = self.layer_thick
+        else:
+            new_z = self.z + self.layer_thick
+            self.g_code += f"G0 Z{new_z:.3f} F{self.fG0}\n"
+            self.z = new_z
 
-        layer_time = (dfG0 / self.fG0) + (dfG1 / self.f)
+        for entity in entity_list:
+            command = entity['command']
+            param = entity['param']
+            start = param['start']
+            end = param['end']
+
+            # CORRECCIÓN: Pasar coordenadas separadas a distance
+            if distance(self.x, self.y, start.x, start.y) > 0.001:
+                dist_travel = distance(self.x, self.y, start.x, start.y)
+                self.g_code += f"; Aca debe ir el comando para cerrar la boquilla\n"
+                self.g_code += f"G0 Z{(self.z + self.z_safe):.5f} F{self.fG0}\n" 
+                self.g_code += f"G0 X{start.x:.5f} Y{start.y:.5f} F{self.fG0}\n"
+                self.g_code += f"G0 Z{self.z:.5f} F{self.fG0}\n"
+                self.g_code += f"; Aca debe ir el comando para abrir la boquilla\n"
+                self.x = start.x
+                self.y = start.y
+                dfG0 += dist_travel
+
+            if command == 'G1':
+                dist = self._linear_move(start, end)
+                dfG1 += dist
+            elif command in ['G2', 'G3']:
+                dist = self._arc_move(start, end, param['i'], param['j'], command)
+                dfG1 += dist
+
+        # Actualizar totales
+        self.total_g0 += dfG0
+        self.total_g1 += dfG1
+
+        layer_time = (dfG1 / self.f) + (dfG0 / self.fG0)
 
         if layer_time > t_max:
             raise LayerTimeError(layer_time, t_max, i)
@@ -138,10 +160,10 @@ class MachineHandler:
             dif = (t_min - layer_time) * 60
             self.g_code += f'G4 S{round(dif)} ;Wait till settle time\n'
             print(f"Layer {i}: tiempo ajustado de {layer_time:.2f}min a {t_min:.2f}min")
-        
+       
         if self.z == max_height:
             self.g_code += ';End of file\n'
-            total_time = (self.disg0 / self.fG0) + (self.disg1 / self.f)
-            print(f'distancia g0 = {self.disg0} distancia g1 = {self.disg1}')
-            print(f'TIME G0 = {self.disg0 / self.fG0:.2f} TIME G1 = {self.disg1 / self.f:.2f}')
+            total_time = (self.total_g0 / self.fG0) + (self.total_g1 / self.f)
+            print(f'distancia g0 = {self.total_g0} distancia g1 = {self.total_g1}')
+            print(f'TIME G0 = {self.total_g0 / self.fG0:.2f} TIME G1 = {self.total_g1 / self.f:.2f}')
             print(f'TOTAL TIME = {total_time:.2f} minutes')
