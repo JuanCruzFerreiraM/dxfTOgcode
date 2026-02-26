@@ -54,6 +54,7 @@ capas_pdf/
 test_outputs/
 test_parser.py
 pps/
+test_inputs/
 
 # Debug outputs
 debug_log.txt
