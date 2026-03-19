@@ -60,3 +60,4 @@ test_inputs/
 debug_log.txt
 debug_output.gcode
 ifc_parser_debug.txt
+ifc_openings_debug.txt

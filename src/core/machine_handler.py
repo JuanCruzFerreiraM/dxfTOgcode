@@ -129,7 +129,7 @@ class MachineHandler:
         if openings_ending:
             ids_str = ", ".join(f"{o['type']}({o['id']})" for o in openings_ending)
             self.g_code += f"; Aca debe ir el comando antes de esta capa: finaliza(n) puerta(s)/ventana(s) - colocar placa/soporte (IDs: {ids_str})\n"
-            self.g_code += "; COMANDO_MARLIN\n"
+            self.g_code += "M0\n"
 
         for entity in entity_list:
             command = entity['command']
@@ -140,11 +140,11 @@ class MachineHandler:
             # CORRECCIÓN: Pasar coordenadas separadas a distance
             if distance(self.x, self.y, start.x, start.y) > 0.001:
                 dist_travel = distance(self.x, self.y, start.x, start.y)
-                self.g_code += f"; Aca debe ir el comando para cerrar la boquilla\n"
+                self.g_code += f"M4\n"
                 self.g_code += f"G0 Z{(self.z + self.z_safe):.5f} F{self.fG0}\n" 
                 self.g_code += f"G0 X{start.x:.5f} Y{start.y:.5f} F{self.fG0}\n"
                 self.g_code += f"G0 Z{self.z:.5f} F{self.fG0}\n"
-                self.g_code += f"; Aca debe ir el comando para abrir la boquilla\n"
+                self.g_code += f"M3\n"
                 self.x = start.x
                 self.y = start.y
                 dfG0 += dist_travel

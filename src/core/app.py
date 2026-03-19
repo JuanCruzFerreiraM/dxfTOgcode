@@ -67,6 +67,103 @@ def write_debug_log(sections, meshes, polygon_data, log_filename="debug_log.txt"
         print(f"[Debug] Error escribiendo log: {e}")
 
 
+def write_openings_debug_log(
+    openings_data,
+    z_values,
+    openings_ending,
+    layer_height_m,
+    eps,
+    log_filename="ifc_openings_debug.txt",
+):
+    """Escribe diagnóstico de aberturas vs capas Z a un archivo para análisis offline."""
+    if not DEBUG_LOG_ENABLED:
+        return
+    try:
+        with open(log_filename, "w", encoding="utf-8") as f:
+            f.write("=" * 60 + "\n")
+            f.write("DEBUG - Aberturas IFC vs capas G-code (openings_ending)\n")
+            f.write("=" * 60 + "\n\n")
+
+            f.write("[Parámetros]\n")
+            f.write(f"  layer_height_m (espesor capa en m): {layer_height_m}\n")
+            f.write(f"  eps (tolerancia numérica): {eps}\n")
+            f.write(
+                f"  Condición por capa z: (z - layer_height_m - eps) < z_max <= (z + eps)\n\n"
+            )
+
+            f.write("[Resumen]\n")
+            f.write(f"  openings_data: {len(openings_data)} elemento(s)\n")
+            if z_values:
+                f.write(
+                    f"  z_values (capas): min={min(z_values):.6f} m, "
+                    f"max={max(z_values):.6f} m, total={len(z_values)}\n"
+                )
+            else:
+                f.write("  z_values: (vacío)\n")
+            capas_con = sum(1 for v in openings_ending.values() if v)
+            f.write(f"  Capas con openings_ending no vacío: {capas_con}\n\n")
+
+            f.write("[Aberturas detectadas (todas)]\n")
+            f.write("-" * 40 + "\n")
+            if not openings_data:
+                f.write("  (ninguna)\n\n")
+            else:
+                for i, o in enumerate(openings_data):
+                    f.write(
+                        f"  [{i}] {o['type']}(id={o['id']}): "
+                        f"z_min={o['z_min']:.6f} m, z_max={o['z_max']:.6f} m\n"
+                    )
+                f.write("\n")
+
+            f.write("[Capas donde SÍ finaliza alguna abertura]\n")
+            f.write("-" * 40 + "\n")
+            zs_con = [z for z in z_values if openings_ending.get(z)]
+            if not zs_con:
+                f.write("  (ninguna)\n\n")
+            else:
+                for z in zs_con:
+                    olist = openings_ending[z]
+                    f.write(f"  Z={z:.6f} m:\n")
+                    for o in olist:
+                        f.write(
+                            f"      {o['type']}(id={o['id']}) "
+                            f"z_min={o['z_min']:.6f} z_max={o['z_max']:.6f}\n"
+                        )
+                f.write("\n")
+
+            f.write("[Muestra de alturas de capa (z_values)]\n")
+            f.write("-" * 40 + "\n")
+            n = len(z_values)
+            if n <= 40:
+                for z in z_values:
+                    tiene = "sí" if openings_ending.get(z) else "no"
+                    f.write(f"  Z={z:.6f} m  finaliza_abertura={tiene}\n")
+            else:
+                f.write(f"  Total capas: {n} (muestra: primeras 15 y últimas 15)\n")
+                for z in z_values[:15]:
+                    tiene = "sí" if openings_ending.get(z) else "no"
+                    f.write(f"  Z={z:.6f} m  finaliza_abertura={tiene}\n")
+                f.write("  ...\n")
+                for z in z_values[-15:]:
+                    tiene = "sí" if openings_ending.get(z) else "no"
+                    f.write(f"  Z={z:.6f} m  finaliza_abertura={tiene}\n")
+                f.write("\n")
+
+            f.write("\n[Notas]\n")
+            f.write(
+                "  Si openings_data es 0, revisar IFC (IfcRelFillsElement, "
+                "IfcRelVoidsElement, IfcOpeningElement, IfcDoor/IfcWindow).\n"
+            )
+            f.write(
+                "  Si hay aberturas pero capas con openings_ending=0, revisar "
+                "alineación z_max de aberturas con alturas de capa del slicer.\n"
+            )
+
+        print(f"[Debug] Diagnóstico aberturas guardado en: {log_filename}")
+    except Exception as e:
+        print(f"[Debug] Error escribiendo ifc_openings_debug: {e}")
+
+
 def dxf_script(path, e, layer_tick, layer_amount, feed_rate, feed_rate_g0):
     """Process DXF file and generate G-code output.
     
@@ -258,17 +355,20 @@ def ifc_script(path, e=0, layer_tick=0.0, feed_rate=0.0, feed_rate_g0=0.0, offse
         for z in z_values
     }
 
-    # Logs de diagnóstico para aberturas
-    print(f"[Info] Aberturas detectadas: {len(openings_data)}")
-    if openings_data:
-        for i, o in enumerate(openings_data[:5]):
-            print(f"  [{i}] {o['type']}(id={o['id']}): z_min={o['z_min']:.4f}m, z_max={o['z_max']:.4f}m")
-        if len(openings_data) > 5:
-            print(f"  ... y {len(openings_data) - 5} más")
-    if z_values:
-        print(f"[Info] Capas Z: min={min(z_values):.4f}m, max={max(z_values):.4f}m, total={len(z_values)}")
+    write_openings_debug_log(
+        openings_data,
+        z_values,
+        openings_ending,
+        layer_height_m,
+        eps,
+        log_filename="ifc_openings_debug.txt",
+    )
     layers_with_openings = sum(1 for olist in openings_ending.values() if olist)
-    print(f"[Info] Capas con aberturas que finalizan: {layers_with_openings}")
+    print(
+        f"[Info] Aberturas: {len(openings_data)} detectada(s), "
+        f"{layers_with_openings} capa(s) con comentario de finalización "
+        f"(detalle en ifc_openings_debug.txt)"
+    )
 
     print(f"[Info] Total de capas generadas: {layer_amount}")
     print(f"[Info] Total de entidades generadas: {len(entities)}")
