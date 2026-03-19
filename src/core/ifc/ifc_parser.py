@@ -197,6 +197,27 @@ def _extract_openings_data(ifc_file, settings):
             "z_max": z_max,
         })
 
+    # IfcRelVoidsElement: voids/openings in building elements (walls, etc.)
+    # RelatedOpeningElement is the IfcOpeningElement that creates the void
+    for rel in ifc_file.by_type("IfcRelVoidsElement"):
+        try:
+            opening = rel.RelatedOpeningElement
+            if opening.id() in seen_opening_ids:
+                continue
+            seen_opening_ids.add(opening.id())
+        except Exception:
+            continue
+        z_range = _get_global_z_range(opening, settings)
+        if z_range is None:
+            continue
+        z_min, z_max = z_range
+        openings_data.append({
+            "id": opening.id(),
+            "type": opening.is_a(),
+            "z_min": z_min,
+            "z_max": z_max,
+        })
+
     # IfcOpeningElement not filled by a door/window
     for element in ifc_file.by_type("IfcOpeningElement"):
         if element.id() in seen_opening_ids:

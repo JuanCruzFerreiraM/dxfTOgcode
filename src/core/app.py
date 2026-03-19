@@ -249,10 +249,26 @@ def ifc_script(path, e=0, layer_tick=0.0, feed_rate=0.0, feed_rate_g0=0.0, offse
     z_values = sorted(layer_entities.keys())
     layer_amount = len(z_values)
     layer_height_m = layer_tick / 1000.0
+
+    # Tolerancia numérica para comparación z_max con alturas de capa (metros)
+    eps = 1e-6
     openings_ending = {
-        z: [o for o in openings_data if (z - layer_height_m < o["z_max"] <= z)]
+        z: [o for o in openings_data
+            if (z - layer_height_m - eps < o["z_max"] <= z + eps)]
         for z in z_values
     }
+
+    # Logs de diagnóstico para aberturas
+    print(f"[Info] Aberturas detectadas: {len(openings_data)}")
+    if openings_data:
+        for i, o in enumerate(openings_data[:5]):
+            print(f"  [{i}] {o['type']}(id={o['id']}): z_min={o['z_min']:.4f}m, z_max={o['z_max']:.4f}m")
+        if len(openings_data) > 5:
+            print(f"  ... y {len(openings_data) - 5} más")
+    if z_values:
+        print(f"[Info] Capas Z: min={min(z_values):.4f}m, max={max(z_values):.4f}m, total={len(z_values)}")
+    layers_with_openings = sum(1 for olist in openings_ending.values() if olist)
+    print(f"[Info] Capas con aberturas que finalizan: {layers_with_openings}")
 
     print(f"[Info] Total de capas generadas: {layer_amount}")
     print(f"[Info] Total de entidades generadas: {len(entities)}")
