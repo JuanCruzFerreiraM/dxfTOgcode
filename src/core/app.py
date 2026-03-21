@@ -12,6 +12,7 @@ import time
 import numpy as np
 import pprint
 from src.core.ifc.parameter_generator import extract_layer_polygons_with_fill
+from src.utils.wall_overlap import collect_all_shared_edges, collect_all_wall_overlaps
 
 
 # Flag para habilitar debug log (cambiar a False en producción)
@@ -164,6 +165,103 @@ def write_openings_debug_log(
         print(f"[Debug] Error escribiendo ifc_openings_debug: {e}")
 
 
+def write_wall_overlap_debug(
+    polygon_data,
+    step=0.1,
+    log_filename="ifc_wall_overlap_debug.txt",
+    min_edge_length_mm=0.1,
+):
+    """Detecta solape de área y bordes/aristas compartidos entre muros por capa."""
+    if not DEBUG_LOG_ENABLED:
+        return
+    try:
+        min_area = max(1e-3, float(step) ** 2 * 1e-6)
+        overlaps = collect_all_wall_overlaps(
+            polygon_data, min_area_mm2=min_area, step=step
+        )
+        shared_edges = collect_all_shared_edges(
+            polygon_data,
+            min_area_mm2=min_area,
+            min_edge_length_mm=min_edge_length_mm,
+            step=step,
+        )
+        with open(log_filename, "w", encoding="utf-8") as f:
+            f.write("=" * 60 + "\n")
+            f.write("DEBUG - Solape entre muros (2D por capa, IfcWall polígonos)\n")
+            f.write("=" * 60 + "\n\n")
+            f.write("[Parámetros]\n")
+            f.write(f"  min_area_mm2 (solape de superficie): {min_area}\n")
+            f.write(
+                f"  min_edge_length_mm (arista compartida, sin área): "
+                f"{min_edge_length_mm}\n"
+            )
+            f.write("  Muros Arc_Wall (is_arc) no se comparan aquí.\n\n")
+
+            f.write("[1] Solape de superficie (área > umbral)\n")
+            f.write("-" * 40 + "\n")
+            f.write(f"  Pares: {len(overlaps)}\n")
+            if not overlaps:
+                f.write(
+                    "  (ninguno — dos huellas no comparten mancha con área positiva)\n\n"
+                )
+            else:
+                for row in overlaps:
+                    z = row["z"]
+                    f.write(
+                        f"  Z={z:.6f} m | {row['type_a']}(id={row['id_a']}) vs "
+                        f"{row['type_b']}(id={row['id_b']})\n"
+                    )
+                    f.write(f"      área intersección: {row['area_mm2']:.6f} mm²\n")
+                    if row.get("bounds"):
+                        f.write(f"      bounds: {row['bounds']}\n")
+                f.write("\n")
+
+            f.write("[2] Aristas / bordes compartidos (área ~0, intersección tipo línea)\n")
+            f.write("-" * 40 + "\n")
+            f.write(
+                "  Muros adyacentes comparten un segmento: posible doble trazo de "
+                "contorno en esa arista (no relleno duplicado en mancha).\n"
+            )
+            f.write(f"  Pares con longitud de borde ≥ {min_edge_length_mm} mm: {len(shared_edges)}\n")
+            if not shared_edges:
+                f.write("  (ninguno bajo este umbral)\n\n")
+            else:
+                for row in shared_edges:
+                    z = row["z"]
+                    f.write(
+                        f"  Z={z:.6f} m | {row['type_a']}(id={row['id_a']}) vs "
+                        f"{row['type_b']}(id={row['id_b']})\n"
+                    )
+                    f.write(
+                        f"      longitud borde común (aprox.): {row['edge_length_mm']:.3f} mm\n"
+                    )
+                    if row.get("bounds"):
+                        f.write(f"      bounds: {row['bounds']}\n")
+                f.write("\n")
+
+            f.write("[Notas]\n")
+            f.write(
+                "  (1) Solape de área: riesgo claro de doble extrusión en esa zona.\n"
+            )
+            f.write(
+                "  (2) Borde compartido: típico entre muros que se tocan; el riesgo es "
+                "duplicar línea de contorno si ambos perímetros se imprimen.\n"
+            )
+
+        print(f"[Debug] Solape muros guardado en: {log_filename}")
+        if overlaps:
+            print(
+                f"[Warning] {len(overlaps)} par(es) con solape de área — ver {log_filename}"
+            )
+        if shared_edges:
+            print(
+                f"[Info] {len(shared_edges)} par(es) con aristas compartidas "
+                f"(detalle en {log_filename})"
+            )
+    except Exception as e:
+        print(f"[Debug] Error escribiendo ifc_wall_overlap_debug: {e}")
+
+
 def dxf_script(path, e, layer_tick, layer_amount, feed_rate, feed_rate_g0):
     """Process DXF file and generate G-code output.
     
@@ -228,7 +326,8 @@ def hash_entity_list(entity_list):
 
 def ifc_script(path, e=0, layer_tick=0.0, feed_rate=0.0, feed_rate_g0=0.0, offset=0.0, step=0.1, 
                r_angle=0, v_angle=0, radius=0, t_min=0, t_max=float("inf"), z_safe=20.0,
-               start_corner="bottom_left"):
+               start_corner="bottom_left", merge_walls_per_layer=False,
+               dedupe_fill_overlap=True, unified_rect_wall_outlines=True):
     """Process IFC file and generate optimized G-code with minimal travel movements.
     
     Args:
@@ -247,6 +346,9 @@ def ifc_script(path, e=0, layer_tick=0.0, feed_rate=0.0, feed_rate_g0=0.0, offse
         z_safe (float): Safe Z height for travel moves in mm
         start_corner (str): Starting corner - 'bottom_left', 'bottom_right', 
                            'top_left', 'top_right', or 'auto'
+        merge_walls_per_layer (bool): Legacy: fusionar muros y recalcular relleno.
+        dedupe_fill_overlap (bool): Recortar rellenos solapados sin recalcular zigzag.
+        unified_rect_wall_outlines (bool): Contorno desde unary_union por capa (sin merge legacy).
         
     Returns:
         dict: Dictionary with 'gcode', 'start_point', and 'start_description'
@@ -266,13 +368,36 @@ def ifc_script(path, e=0, layer_tick=0.0, feed_rate=0.0, feed_rate_g0=0.0, offse
     
     start = time.time()
     polygon_data = extract_layer_polygons_with_fill(
-        meshes, step=step, offset=offset, angle=r_angle, v_angle=v_angle, radius=radius
+        meshes,
+        step=step,
+        offset=offset,
+        angle=r_angle,
+        v_angle=v_angle,
+        radius=radius,
+        merge_walls_per_layer=merge_walls_per_layer,
+        dedupe_fill_overlap=dedupe_fill_overlap,
+        unified_rect_wall_outlines=unified_rect_wall_outlines,
     )
     print(f"[Tiempo] Extracción de polígonos y relleno: {time.time() - start:.2f} segundos")
+    if merge_walls_per_layer:
+        print(
+            "[Info] Muros fusionados por capa (unary_union) y relleno recalculado (modo legacy)."
+        )
+    else:
+        if dedupe_fill_overlap:
+            print(
+                "[Info] Relleno: zigzag por muro; tramos en solape entre muros recortados al final."
+            )
+        if unified_rect_wall_outlines:
+            print(
+                "[Info] Contorno muros rectos: unión booleana por capa (sin doble extrusión "
+                "en aristas compartidas entre IfcWall)."
+            )
     
     # Escribir debug log
     write_debug_log(sections, meshes, polygon_data)
-    
+    write_wall_overlap_debug(polygon_data, step=step)
+
     # Calcular bounding box del modelo para determinar punto de inicio
     min_x, min_y = float('inf'), float('inf')
     max_x, max_y = float('-inf'), float('-inf')

@@ -266,6 +266,9 @@ class GcodeGenerator:
                         'outline', 
                         outline_id
                     )
+                elif polygon_data_item.get('skip_outline'):
+                    # Relleno por muro; contorno unificado viene en otro ítem (outline_only)
+                    outline_entities = []
                 else:
                     polygon = polygon_data_item['polygon']
                     outline_entities = self.generate_outline_from_point(
@@ -274,9 +277,12 @@ class GcodeGenerator:
                 
                 self.entity_list.extend(outline_entities)
                 
-                fill_entities = self.generate_fill_entities(
-                    fill_lines, 'fill', outline_id, z
-                )
+                if polygon_data_item.get('outline_only'):
+                    fill_entities = []
+                else:
+                    fill_entities = self.generate_fill_entities(
+                        fill_lines, 'fill', outline_id, z
+                    )
                 self.entity_list.extend(fill_entities)
         
         # Verificar continuidad del path y emitir warnings

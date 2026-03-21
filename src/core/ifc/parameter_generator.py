@@ -478,7 +478,352 @@ def optimize_global_shift_for_layer(sections, step=0.1, offset=0.0, n_shifts=20,
     return best
 
 
-def extract_layer_polygons_with_fill(slices, step=0.1, offset=0.0, n_shifts=20, angle=0, v_angle=0, radius=0):
+def _polygons_from_union_geometry(geom):
+    """Lista de Polygon a partir del resultado de unary_union sobre muros."""
+    if geom is None or getattr(geom, "is_empty", True):
+        return []
+    gt = geom.geom_type
+    if gt == "Polygon":
+        return [geom]
+    if gt == "MultiPolygon":
+        return list(geom.geoms)
+    if gt == "GeometryCollection":
+        out = []
+        for g in geom.geoms:
+            out.extend(_polygons_from_union_geometry(g))
+        return out
+    return []
+
+
+def _append_fill_from_intersection(new_fill, inter):
+    """Añade LineString(s) desde el resultado de line.intersection(polígono)."""
+    if inter is None or getattr(inter, "is_empty", True):
+        return
+    gt = inter.geom_type
+    if gt == "LineString":
+        new_fill.append(inter)
+    elif gt == "MultiLineString":
+        new_fill.extend(list(inter.geoms))
+    elif gt == "GeometryCollection":
+        for g in inter.geoms:
+            _append_fill_from_intersection(new_fill, g)
+
+
+def _dedupe_wall_fill_overlap(layer_polygons):
+    """Recorta ``fill_lines`` donde varios muros se solapan en planta, sin recalcular el zigzag.
+
+    El relleno se genera igual que siempre por muro; después se eliminan tramos que caen
+    en zona ya cubierta por polígonos de muros procesados antes (orden estable por tipo+id).
+
+    No modifica ``polygon`` ni contornos; solo las líneas de relleno. ``Arc_Wall`` no se toca.
+    """
+    out = {}
+    for z, items in layer_polygons.items():
+        arc_items = [i for i in items if i.get("is_arc")]
+        wall_items = [
+            i
+            for i in items
+            if not i.get("is_arc")
+            and "wall" in str(i.get("type") or "").lower()
+            and i.get("polygon") is not None
+        ]
+        other = [i for i in items if i not in arc_items and i not in wall_items]
+
+        if len(wall_items) <= 1:
+            out[z] = items
+            continue
+
+        indexed = list(enumerate(wall_items))
+        indexed.sort(
+            key=lambda iw: (str(iw[1].get("type")), str(iw[1].get("id")))
+        )
+
+        U = None
+        fills_by_index = {}
+        for orig_idx, w in indexed:
+            poly = w["polygon"]
+            try:
+                if U is None:
+                    exclusive = poly
+                else:
+                    exclusive = poly.difference(U)
+                    if not exclusive.is_valid:
+                        exclusive = exclusive.buffer(0)
+            except Exception:
+                exclusive = poly
+
+            new_fill = []
+            for line in w.get("fill_lines") or []:
+                if line is None or getattr(line, "is_empty", True):
+                    continue
+                try:
+                    inter = line.intersection(exclusive)
+                    _append_fill_from_intersection(new_fill, inter)
+                except Exception:
+                    continue
+
+            fills_by_index[orig_idx] = new_fill
+
+            try:
+                U = poly if U is None else unary_union([U, poly])
+                if not U.is_valid:
+                    U = U.buffer(0)
+            except Exception:
+                U = poly if U is None else U
+
+        new_walls = []
+        for i, w in enumerate(wall_items):
+            nw = dict(w)
+            nw["fill_lines"] = fills_by_index.get(i, w.get("fill_lines", []))
+            new_walls.append(nw)
+
+        out[z] = new_walls + arc_items + other
+
+    return out
+
+
+def _inject_unified_rect_wall_outlines(layer_polygons, step=0.1):
+    """Añade contornos desde ``unary_union`` de muros rectos y omite perímetro por muro.
+
+    El relleno por muro no se recalcula. Cada ``IfcWall`` recto pasa a ``skip_outline``;
+    los perímetros compartidos entre muros dejan de duplicarse en el G-code de contorno.
+    """
+    out = {}
+    for z, items in layer_polygons.items():
+        arc_items = [i for i in items if i.get("is_arc")]
+        wall_items = [
+            i
+            for i in items
+            if not i.get("is_arc")
+            and "wall" in str(i.get("type") or "").lower()
+            and i.get("polygon") is not None
+        ]
+        other = [i for i in items if i not in arc_items and i not in wall_items]
+
+        if len(wall_items) <= 1:
+            out[z] = items
+            continue
+
+        polys = []
+        for w in wall_items:
+            try:
+                p = w["polygon"]
+                if p is not None and not p.is_empty and float(p.area) > 0:
+                    polys.append(p)
+            except Exception:
+                continue
+
+        if len(polys) <= 1:
+            out[z] = items
+            continue
+
+        try:
+            U = unary_union(polys)
+            if not U.is_valid:
+                U = U.buffer(0)
+        except Exception:
+            out[z] = items
+            continue
+
+        if U.is_empty:
+            out[z] = items
+            continue
+
+        components = _polygons_from_union_geometry(U)
+        if not components:
+            out[z] = items
+            continue
+
+        outline_items = []
+        for idx, poly in enumerate(components):
+            if poly.area <= (step**2) * 1e-3:
+                continue
+            try:
+                poly = normalize_polygon_bounds(poly)
+            except Exception:
+                pass
+            centroid = poly.centroid
+            boundary_points = list(poly.exterior.coords)
+            outline_items.append(
+                {
+                    "polygon": poly,
+                    "type": "IfcWallOutlineUnion",
+                    "id": f"outline_union_{idx}",
+                    "fill_lines": [],
+                    "is_arc": False,
+                    "outline_only": True,
+                    "skip_outline": False,
+                    "centroid": Vec3(centroid.x, centroid.y, z),
+                    "boundary_points": [
+                        Vec3(p[0], p[1], z) for p in boundary_points
+                    ],
+                }
+            )
+
+        if not outline_items:
+            out[z] = items
+            continue
+
+        new_walls = []
+        for w in wall_items:
+            nw = dict(w)
+            nw["skip_outline"] = True
+            if "outline_only" in nw:
+                del nw["outline_only"]
+            new_walls.append(nw)
+
+        out[z] = outline_items + new_walls + arc_items + other
+
+    return out
+
+
+def _merge_wall_footprints_per_layer(
+    layer_polygons, step, offset, n_shifts, angle, v_angle, radius
+):
+    """Fusiona todas las huellas rectas de IfcWall en cada capa (``unary_union``).
+
+    Las aristas compartidas entre muros dejan de ser doble contorno: la unión
+    produce un único polígono (o varios si hay masas desconectadas). El relleno
+    se recalcula sobre cada polígono fusionado.
+
+    Los ``Arc_Wall`` no se modifican.
+    """
+    out = {}
+    for z, items in layer_polygons.items():
+        arc_items = [i for i in items if i.get("is_arc")]
+        wall_items = [
+            i
+            for i in items
+            if not i.get("is_arc")
+            and "wall" in str(i.get("type") or "").lower()
+            and i.get("polygon") is not None
+        ]
+        other = [i for i in items if i not in arc_items and i not in wall_items]
+
+        if len(wall_items) <= 1:
+            out[z] = items
+            continue
+
+        polys = []
+        for w in wall_items:
+            try:
+                p = w["polygon"]
+                if p is not None and not p.is_empty and float(p.area) > 0:
+                    polys.append(p)
+            except Exception:
+                continue
+
+        if len(polys) <= 1:
+            out[z] = items
+            continue
+
+        try:
+            u = unary_union(polys)
+            if not u.is_valid:
+                u = u.buffer(0)
+        except Exception:
+            out[z] = items
+            continue
+
+        if u.is_empty:
+            out[z] = items
+            continue
+
+        geom_list = _polygons_from_union_geometry(u)
+        if not geom_list:
+            out[z] = items
+            continue
+
+        merged_list = []
+        for idx, poly in enumerate(geom_list):
+            try:
+                poly = normalize_polygon_bounds(poly)
+            except Exception:
+                pass
+            if poly.area <= (step**2) * 1e-3:
+                continue
+
+            synthetic_id = f"merged_{idx}"
+            union_list = [
+                {"polygon": poly, "type": "IfcWall", "id": synthetic_id}
+            ]
+            global_best_shifts = optimize_global_shift_for_layer(
+                union_list, step=step, offset=offset, n_shifts=n_shifts, v_angle=v_angle
+            )
+            direction = dominant_edge_direction(poly)
+            frac = global_best_shifts.get(direction, 0.0)
+            clipped = _clip_polygon_by_offset(poly, offset)
+
+            if clipped.is_empty:
+                calc_step = step
+                max_dim = step
+            else:
+                minx, miny, maxx, maxy = clipped.bounds
+                if v_angle != 0:
+                    v_angle_rad = np.radians(v_angle)
+                    calc_step = (
+                        (maxy - miny) * np.tan(v_angle_rad)
+                        if direction == "x"
+                        else (maxx - minx) * np.tan(v_angle_rad)
+                    )
+                else:
+                    calc_step = step
+                max_dim = max(maxx - minx, maxy - miny)
+
+            calc_step = float(np.clip(calc_step, step * 0.01, max_dim))
+            shift_real = float(frac) * calc_step
+            base_pattern = generate_vzigzag_singlepass(
+                poly,
+                step=step,
+                offset=offset,
+                global_shift=shift_real,
+                fill_rot_anlgle=angle,
+                v_angle=v_angle,
+            )
+            fill_lines = []
+            poly_offset = _clip_polygon_by_offset(poly, offset)
+            if not poly_offset.is_empty:
+                for line in base_pattern:
+                    intersection = poly_offset.intersection(line)
+                    if not intersection.is_empty:
+                        if isinstance(intersection, LineString):
+                            fill_lines.append(intersection)
+                        elif isinstance(intersection, MultiLineString):
+                            fill_lines.extend(list(intersection.geoms))
+
+            centroid = poly.centroid
+            boundary_points = list(poly.exterior.coords)
+            data = {
+                "polygon": poly,
+                "type": "IfcWall",
+                "id": synthetic_id,
+                "fill_lines": fill_lines,
+                "is_arc": False,
+                "centroid": Vec3(centroid.x, centroid.y, z),
+                "boundary_points": [Vec3(p[0], p[1], z) for p in boundary_points],
+            }
+            merged_list.append(data)
+
+        if not merged_list:
+            out[z] = items
+        else:
+            out[z] = merged_list + arc_items + other
+
+    return out
+
+
+def extract_layer_polygons_with_fill(
+    slices,
+    step=0.1,
+    offset=0.0,
+    n_shifts=20,
+    angle=0,
+    v_angle=0,
+    radius=0,
+    merge_walls_per_layer=False,
+    dedupe_fill_overlap=True,
+    unified_rect_wall_outlines=True,
+):
     """Extract polygons with fill information for layer processing optimization.
     
     Processes IFC slice data to generate optimized polygon representations with
@@ -493,6 +838,12 @@ def extract_layer_polygons_with_fill(slices, step=0.1, offset=0.0, n_shifts=20, 
         angle (int): Fill pattern rotation angle in degrees
         v_angle (int): Vertical angle for angled fill patterns in degrees
         radius (float): Radius parameter for arc operations (unused in current implementation)
+        merge_walls_per_layer (bool): Si True, reemplaza muros por ``unary_union`` y
+            **recalcula** relleno (legacy; no combinar con dedupe).
+        dedupe_fill_overlap (bool): Si True (y merge False), mantiene el zigzag original
+            y recorta ``fill_lines`` para no depositar dos veces en solapes entre muros.
+        unified_rect_wall_outlines (bool): Si True (y merge False), inyecta contorno desde
+            ``unary_union`` de muros rectos y marca ``skip_outline`` en cada muro (solo relleno).
         
     Returns:
         dict: Dictionary mapping Z-heights to lists of section data with polygons,
@@ -703,5 +1054,21 @@ def extract_layer_polygons_with_fill(slices, step=0.1, offset=0.0, n_shifts=20, 
                 sections_data.append(data)
         
         # sections_data ya está referenciado a layer_polygons[z], no es necesario reasignar
-    
+
+    if merge_walls_per_layer:
+        layer_polygons = _merge_wall_footprints_per_layer(
+            layer_polygons,
+            step=step,
+            offset=offset,
+            n_shifts=n_shifts,
+            angle=angle,
+            v_angle=v_angle,
+            radius=radius,
+        )
+    elif dedupe_fill_overlap:
+        layer_polygons = _dedupe_wall_fill_overlap(layer_polygons)
+
+    if unified_rect_wall_outlines and not merge_walls_per_layer:
+        layer_polygons = _inject_unified_rect_wall_outlines(layer_polygons, step=step)
+
     return layer_polygons
