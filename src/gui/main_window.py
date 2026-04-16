@@ -1,11 +1,21 @@
+import os
+
 from PyQt6.QtWidgets import (
-    QMainWindow, QWidget, QVBoxLayout, QStackedWidget, QHBoxLayout, QSpacerItem, QSizePolicy
+    QMainWindow,
+    QWidget,
+    QVBoxLayout,
+    QStackedWidget,
+    QHBoxLayout,
+    QSpacerItem,
+    QSizePolicy,
+    QPushButton,
+    QMessageBox,
 )
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QIcon
+from PyQt6.QtCore import Qt, QUrl
+from PyQt6.QtGui import QIcon, QDesktopServices
 from src.gui.ifc_page import IFCPage
 from src.gui.gcode_preview import Preview
-from src.gui.resource_paths import gui_icon_path
+from src.gui.resource_paths import gui_icon_path, manual_pdf_path
 
 
 class MainWindow(QMainWindow):
@@ -37,7 +47,33 @@ class MainWindow(QMainWindow):
         content_layout = QVBoxLayout(content_wrapper)
         content_layout.setContentsMargins(10, 0, 0, 0)
         content_layout.setSpacing(0)
-        content_layout.addSpacerItem(QSpacerItem(0, 8, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed))
+        content_layout.addSpacerItem(QSpacerItem(0, 4, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed))
+
+        help_row = QHBoxLayout()
+        help_row.setContentsMargins(0, 0, 0, 0)
+        help_row.addStretch()
+        btn_help = QPushButton("Ayuda")
+        btn_help.setToolTip("Abrir manual de usuario (PDF)")
+        btn_help.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_help.setStyleSheet("""
+            QPushButton {
+                background-color: transparent;
+                font-size: 14px;
+                font-weight: 500;
+                color: #3584E4;
+                border: none;
+                padding: 6px 12px;
+            }
+            QPushButton:hover {
+                color: #2C3E50;
+                text-decoration: underline;
+            }
+        """)
+        btn_help.clicked.connect(self._open_user_manual)
+        help_row.addWidget(btn_help)
+        content_layout.addLayout(help_row)
+
+        content_layout.addSpacerItem(QSpacerItem(0, 4, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed))
         content_layout.addWidget(self.divider)
         content_layout.addWidget(self.stack)
         content_wrapper.setMaximumWidth(1200)
@@ -62,3 +98,14 @@ class MainWindow(QMainWindow):
                 background-color: #F5F7FA;
             }
         """)
+
+    def _open_user_manual(self):
+        path = manual_pdf_path()
+        if os.path.isfile(path):
+            QDesktopServices.openUrl(QUrl.fromLocalFile(path))
+        else:
+            QMessageBox.warning(
+                self,
+                "Ayuda",
+                "No se encontró el manual de usuario (Manual_de_usuario.pdf).",
+            )

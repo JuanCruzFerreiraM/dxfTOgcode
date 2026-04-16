@@ -16,6 +16,7 @@ SRC_MAIN = ROOT / "src" / "main.py"
 datas = [
     (str(ROOT / "src" / "gui" / "icons"), "src/gui/icons"),
     (str(ROOT / "VERSION.txt"), "."),
+    (str(ROOT / "Manual_de_usuario.pdf"), "."),
 ]
 
 try:
@@ -66,6 +67,7 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
+    # Do not exclude numpy.testing: SciPy/Shapely and other deps import it at runtime.
     excludes=[
         "PyQt6.QtNetwork",
         "PyQt6.QtWebEngine",
@@ -73,7 +75,6 @@ a = Analysis(
         "PyQt6.QtWebEngineWidgets",
         "pytest",
         "numpy.tests",
-        "numpy.testing",
         "scipy.tests",
     ],
     win_no_prefer_redirects=False,
