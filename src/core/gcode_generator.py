@@ -1,7 +1,8 @@
 from ezdxf.math import Vec3
-from math import sin, cos, radians, atan
+from math import atan, cos, hypot, radians, sin
 from src.utils.geometry import is_ccw, bulge_to_center, distance
-from src.utils.path_optimizer import optimize_layer_traversal
+from src.utils.path_optimizer import DEFAULT_ROUTE_OPTIONS, optimize_layer_traversal
+from src.utils.fill_chain import chain_fill_linestrings
 import networkx as nx
 import warnings
 
@@ -18,6 +19,19 @@ class PathContinuityWarning(UserWarning):
 
 # Tolerancia para considerar dos puntos como conectados (en mm)
 CONTINUITY_TOLERANCE = 0.5
+
+
+def _outline_g1_segment_key(start, end, quant_mm):
+    """Clave de segmento no orientado para detectar aristas duplicadas en contornos G1."""
+    if quant_mm is None or quant_mm <= 0:
+        quant_mm = 0.02
+    scale = 1.0 / quant_mm
+
+    def snap_xy(v):
+        return (int(round(v.x * scale)), int(round(v.y * scale)))
+
+    a, b = snap_xy(start), snap_xy(end)
+    return tuple(sorted([a, b]))
 
 
 class GcodeGenerator:
@@ -110,6 +124,52 @@ class GcodeGenerator:
                     })
                     self.id_entity_counter += 1
         
+        return entities
+
+    def generate_outline_from_polyline(self, coords, entry_point, z, layer, outline_id):
+        """Emite G1 a lo largo de una polilínea (cadena tras linemerge de aristas de muro)."""
+        if not coords or len(coords) < 2:
+            return []
+        pts = [(float(c[0]), float(c[1])) for c in coords]
+        first_last = hypot(pts[0][0] - pts[-1][0], pts[0][1] - pts[-1][1])
+        closed = first_last < 1e-5
+
+        if closed:
+            if len(pts) < 3:
+                return []
+            ring = pts[:-1]
+            if len(ring) < 2:
+                return []
+            best_i = min(
+                range(len(ring)),
+                key=lambda i: Vec3(ring[i][0], ring[i][1], z).distance(entry_point),
+            )
+            ordered = ring[best_i:] + ring[:best_i]
+            ordered.append(ordered[0])
+        else:
+            fwd, rev = pts, list(reversed(pts))
+            d_fwd = Vec3(fwd[0][0], fwd[0][1], z).distance(entry_point)
+            d_rev = Vec3(rev[0][0], rev[0][1], z).distance(entry_point)
+            ordered = fwd if d_fwd <= d_rev else rev
+
+        entities = []
+        for i in range(len(ordered) - 1):
+            p1 = Vec3(ordered[i][0], ordered[i][1], z)
+            p2 = Vec3(ordered[i + 1][0], ordered[i + 1][1], z)
+            if p1.distance(p2) > 1e-6:
+                entities.append(
+                    {
+                        "command": "G1",
+                        "param": {
+                            "start": p1,
+                            "end": p2,
+                            "layer": layer,
+                            "id": self.id_entity_counter,
+                            "outline_id": outline_id,
+                        },
+                    }
+                )
+                self.id_entity_counter += 1
         return entities
 
     def generate_arc_outline(self, arc_data_list, entry_point, z, layer, outline_id):
@@ -231,59 +291,168 @@ class GcodeGenerator:
                     self.id_entity_counter += 1
         
         return entities
+
+    def build_item_entity_list(
+        self,
+        polygon_data_item,
+        entry_point,
+        z,
+        outline_id,
+        pos_before_island,
+        dedupe_outline_segments=False,
+        outline_dedupe_mm=0.02,
+        seen_outline_segments=None,
+    ):
+        """
+        Construye entidades de contorno + relleno para un ítem (sin modificar ``entity_list``).
+
+        ``pos_before_island`` es la posición del cabezal antes de este ítem: para
+        ``skip_outline`` encadena el relleno desde ahí; si hay contorno, el relleno
+        se encadena desde el último punto del contorno.
+        """
+        saved_list = self.entity_list
+        saved_id = self.id_entity_counter
+        self.entity_list = []
+        try:
+            fill_raw = polygon_data_item.get("fill_lines") or []
+
+            if polygon_data_item.get("is_arc", False):
+                outline_entities = self.generate_arc_outline(
+                    polygon_data_item["arc_data"],
+                    entry_point,
+                    z,
+                    "outline",
+                    outline_id,
+                )
+            elif polygon_data_item.get("skip_outline"):
+                outline_entities = []
+            elif polygon_data_item.get("outline_polyline"):
+                chain = polygon_data_item.get("outline_chain_coords") or []
+                outline_entities = self.generate_outline_from_polyline(
+                    chain, entry_point, z, "outline", outline_id
+                )
+            else:
+                polygon = polygon_data_item.get("polygon")
+                if polygon is None:
+                    outline_entities = []
+                else:
+                    outline_entities = self.generate_outline_from_point(
+                        polygon, entry_point, "outline", outline_id
+                    )
+
+            if dedupe_outline_segments and seen_outline_segments is not None:
+                filtered = []
+                for ent in outline_entities:
+                    if (
+                        ent.get("command") == "G1"
+                        and ent.get("param", {}).get("layer") == "outline"
+                    ):
+                        p = ent["param"]
+                        sk = _outline_g1_segment_key(
+                            p["start"], p["end"], outline_dedupe_mm
+                        )
+                        if sk in seen_outline_segments:
+                            continue
+                        seen_outline_segments.add(sk)
+                    filtered.append(ent)
+                outline_entities = filtered
+
+            if polygon_data_item.get("outline_only"):
+                fill_ordered = []
+            elif polygon_data_item.get("skip_outline"):
+                fill_ordered = chain_fill_linestrings(fill_raw, pos_before_island)
+            else:
+                if outline_entities:
+                    last = outline_entities[-1]["param"]["end"]
+                    chain_start = last
+                else:
+                    chain_start = entry_point
+                fill_ordered = chain_fill_linestrings(fill_raw, chain_start)
+
+            if polygon_data_item.get("outline_only"):
+                fill_entities = []
+            else:
+                fill_entities = self.generate_fill_entities(
+                    fill_ordered, "fill", outline_id, z
+                )
+
+            return outline_entities + fill_entities
+        finally:
+            self.entity_list = saved_list
+            self.id_entity_counter = saved_id
+
+    def first_print_start(self, entities):
+        """Primer punto de contacto G1/G2/G3 de una lista de entidades."""
+        if not entities:
+            return None
+        return entities[0]["param"]["start"]
+
+    def last_print_end(self, entities):
+        if not entities:
+            return None
+        return entities[-1]["param"]["end"]
+
     
-    
-    def generate_optimized_entities(self, polygon_data, initial_point=Vec3(0, 0, 0)):
+    def generate_optimized_entities(
+        self,
+        polygon_data,
+        initial_point=Vec3(0, 0, 0),
+        dedupe_outline_segments=False,
+        outline_dedupe_mm=0.02,
+        route_options=None,
+    ):
         """Generate path-optimized entities to minimize travel movements.
         
         Args:
             polygon_data (dict): Dictionary mapping Z-levels to polygon data
             initial_point (Vec3): Starting position for path optimization
-            
+            dedupe_outline_segments (bool): Por defecto False. Si True, filtra G1 de contorno
+                duplicados por capa (puede romper anillos cerrados con varios outline_only).
+            outline_dedupe_mm (float): Cuantización en mm si dedupe_outline_segments es True.
+            route_options: ``RouteOptimizeOptions`` o None para valores por defecto (rápido en modelos grandes).
+
         Returns:
             list: Optimized list of G-code entity dictionaries
         """
         self.entity_list = []
         self.id_entity_counter = 0
         
-        optimized_traversal = optimize_layer_traversal(polygon_data, initial_point)
-        
+        ro = route_options if route_options is not None else DEFAULT_ROUTE_OPTIONS
+        optimized_traversal = optimize_layer_traversal(
+            polygon_data, initial_point, route_options=ro
+        )
+        outline_g1_seen_by_z = {} if dedupe_outline_segments else None
+        cursor = initial_point
+
         for z in sorted(optimized_traversal.keys()):
+            cursor = Vec3(cursor.x, cursor.y, z)
             sequence = optimized_traversal[z]
-            
+            z_key = round(float(z), 5)
+            if dedupe_outline_segments:
+                if z_key not in outline_g1_seen_by_z:
+                    outline_g1_seen_by_z[z_key] = set()
+                seen_outline_segments = outline_g1_seen_by_z[z_key]
+            else:
+                seen_outline_segments = None
+
             for step in sequence:
                 polygon_data_item = step['polygon_data']
                 entry_point = step['entry_point']
-                
                 outline_id = step['polygon_index']
-                fill_lines = polygon_data_item.get('fill_lines', [])
-                
-                if polygon_data_item.get('is_arc', False):
-                    outline_entities = self.generate_arc_outline(
-                        polygon_data_item['arc_data'], 
-                        entry_point, 
-                        z, 
-                        'outline', 
-                        outline_id
-                    )
-                elif polygon_data_item.get('skip_outline'):
-                    # Relleno por muro; contorno unificado viene en otro ítem (outline_only)
-                    outline_entities = []
-                else:
-                    polygon = polygon_data_item['polygon']
-                    outline_entities = self.generate_outline_from_point(
-                        polygon, entry_point, 'outline', outline_id
-                    )
-                
-                self.entity_list.extend(outline_entities)
-                
-                if polygon_data_item.get('outline_only'):
-                    fill_entities = []
-                else:
-                    fill_entities = self.generate_fill_entities(
-                        fill_lines, 'fill', outline_id, z
-                    )
-                self.entity_list.extend(fill_entities)
+
+                ents = self.build_item_entity_list(
+                    polygon_data_item,
+                    entry_point,
+                    z,
+                    outline_id,
+                    cursor,
+                    dedupe_outline_segments=dedupe_outline_segments,
+                    outline_dedupe_mm=outline_dedupe_mm,
+                    seen_outline_segments=seen_outline_segments,
+                )
+                self.entity_list.extend(ents)
+                if ents:
+                    cursor = ents[-1]["param"]["end"]
         
         # Verificar continuidad del path y emitir warnings
         self._check_path_continuity()
@@ -409,14 +578,10 @@ class GcodeGenerator:
             self.dxf_reference_point = first_entity['param']['start']
 
     def order_entity_list(self, entity_list, initial_point):
-        """Order entity list for optimal traversal.
-        
-        Args:
-            entity_list (list): List of entities to order
-            initial_point (Vec3): Starting reference point
-            
-        Returns:
-            list: Ordered entity list (now simplified as entities are pre-optimized)
+        """Orden de entidades ya optimizado en ``optimize_layer_traversal`` / encadenado de relleno.
+
+        Reordenar aquí duplicaría lógica con ``path_optimizer`` y ``chain_fill_linestrings``;
+        se mantiene identidad salvo extensiones futuras (p. ej. 2-opt global sobre entidades).
         """
         return entity_list
 

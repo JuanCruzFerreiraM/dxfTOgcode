@@ -17,6 +17,11 @@ def distance(x1, y1, x2, y2):
     return m.sqrt((x2 - x1)**2 + (y2 - y1)**2)
 
 
+def distance_vec3_xy(a, b):
+    """Distancia euclídea en plano XY entre dos Vec3 (ignora Z)."""
+    return m.hypot(a.x - b.x, a.y - b.y)
+
+
 def bulge_to_radius(x1, y1, x2, y2, bulge):
     """Calculate arc radius from bulge factor and chord endpoints.
     

@@ -35,24 +35,26 @@ def test_line_entity():
             'start': ps,
             'end': pe,
             'layer': 'contorno',
-            'id': 2
+            'id': 2,
+            'outline_id': -1,
         }
-        }]
-        gcode.line_entity(ps,pe,'contorno',2)
-        assert gcode.entity_list == result
-        ps = Vec3(0,0,0)
-        pe = Vec3(1000.0,155.0,0)
-        result.append ({
-            'command': 'G1',
-            'param': {
-                'start': ps,
-                'end': pe,
-                'layer': 'relleno',
-                'id': 1
-            }
-        })
-        gcode.line_entity(ps,pe,'relleno',1)
-        assert gcode.entity_list == result
+    }]
+    gcode.line_entity(ps, pe, 'contorno', 2)
+    assert gcode.entity_list == result
+    ps = Vec3(0, 0, 0)
+    pe = Vec3(1000.0, 155.0, 0)
+    result.append({
+        'command': 'G1',
+        'param': {
+            'start': ps,
+            'end': pe,
+            'layer': 'relleno',
+            'id': 1,
+            'outline_id': -1,
+        }
+    })
+    gcode.line_entity(ps, pe, 'relleno', 1)
+    assert gcode.entity_list == result
 
 
 def test_arc_entity():

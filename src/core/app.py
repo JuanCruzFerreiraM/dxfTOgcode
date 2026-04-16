@@ -327,7 +327,12 @@ def hash_entity_list(entity_list):
 def ifc_script(path, e=0, layer_tick=0.0, feed_rate=0.0, feed_rate_g0=0.0, offset=0.0, step=0.1, 
                r_angle=0, v_angle=0, radius=0, t_min=0, t_max=float("inf"), z_safe=20.0,
                start_corner="bottom_left", merge_walls_per_layer=False,
-               dedupe_fill_overlap=True, unified_rect_wall_outlines=True):
+               dedupe_fill_overlap=True, unified_rect_wall_outlines=True,
+               unified_rect_outline_eps=0.01,
+               unified_rect_outline_snap_mm=0.05,
+               dedupe_outline_segments=False,
+               outline_dedupe_mm=0.02,
+               route_options=None):
     """Process IFC file and generate optimized G-code with minimal travel movements.
     
     Args:
@@ -349,7 +354,14 @@ def ifc_script(path, e=0, layer_tick=0.0, feed_rate=0.0, feed_rate_g0=0.0, offse
         merge_walls_per_layer (bool): Legacy: fusionar muros y recalcular relleno.
         dedupe_fill_overlap (bool): Recortar rellenos solapados sin recalcular zigzag.
         unified_rect_wall_outlines (bool): Contorno desde unary_union por capa (sin merge legacy).
-        
+        unified_rect_outline_eps (float): Ignorado (compatibilidad); contorno = aristas deduplicadas.
+        unified_rect_outline_snap_mm (float): mm; rejilla al fusionar aristas compartidas (IFC).
+        dedupe_outline_segments (bool): Experimental; True puede abrir contornos con varios
+            outline_only en la misma capa.
+        outline_dedupe_mm (float): Cuantización mm si dedupe_outline_segments es True.
+        route_options: instancia opcional de ``RouteOptimizeOptions`` (ver
+            ``src.utils.path_optimizer``); None = valores por defecto pensados para velocidad.
+
     Returns:
         dict: Dictionary with 'gcode', 'start_point', and 'start_description'
         
@@ -377,6 +389,8 @@ def ifc_script(path, e=0, layer_tick=0.0, feed_rate=0.0, feed_rate_g0=0.0, offse
         merge_walls_per_layer=merge_walls_per_layer,
         dedupe_fill_overlap=dedupe_fill_overlap,
         unified_rect_wall_outlines=unified_rect_wall_outlines,
+        unified_rect_outline_eps=unified_rect_outline_eps,
+        unified_rect_outline_snap_mm=unified_rect_outline_snap_mm,
     )
     print(f"[Tiempo] Extracción de polígonos y relleno: {time.time() - start:.2f} segundos")
     if merge_walls_per_layer:
@@ -390,9 +404,14 @@ def ifc_script(path, e=0, layer_tick=0.0, feed_rate=0.0, feed_rate_g0=0.0, offse
             )
         if unified_rect_wall_outlines:
             print(
-                "[Info] Contorno muros rectos: unión booleana por capa (sin doble extrusión "
-                "en aristas compartidas entre IfcWall)."
+                "[Info] Contorno muros rectos: aristas únicas por capa (snap "
+                f"{unified_rect_outline_snap_mm} mm; T/escalones conservan perímetro interior)."
             )
+            if dedupe_outline_segments:
+                print(
+                    "[Warning] dedupe_outline_segments=True puede eliminar tramos válidos "
+                    f"de contorno (cuantización {outline_dedupe_mm} mm)."
+                )
     
     # Escribir debug log
     write_debug_log(sections, meshes, polygon_data)
@@ -451,7 +470,13 @@ def ifc_script(path, e=0, layer_tick=0.0, feed_rate=0.0, feed_rate_g0=0.0, offse
     start = time.time()
     gcode_generator = GcodeGenerator()
     
-    entities = gcode_generator.generate_optimized_entities(polygon_data, initial_point)
+    entities = gcode_generator.generate_optimized_entities(
+        polygon_data,
+        initial_point,
+        dedupe_outline_segments=dedupe_outline_segments,
+        outline_dedupe_mm=outline_dedupe_mm,
+        route_options=route_options,
+    )
     print(f"[Tiempo] Optimización y generación de entidades: {time.time() - start:.2f} segundos")
     
     # Mostrar warnings de continuidad si los hay

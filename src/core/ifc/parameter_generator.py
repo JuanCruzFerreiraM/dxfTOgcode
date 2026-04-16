@@ -8,7 +8,7 @@ and geometric optimizations for 3D printing applications.
 
 from shapely.affinity import affine_transform, rotate, translate, scale
 from shapely.geometry import LineString, MultiLineString, Polygon, MultiPolygon
-from shapely.ops import unary_union
+from shapely.ops import linemerge, unary_union
 from ezdxf.math import Vec3
 import numpy as np
 import math
@@ -495,6 +495,178 @@ def _polygons_from_union_geometry(geom):
     return []
 
 
+def _polygon_rings_xy(polygon: Polygon):
+    """Secuencias de vértices (x,y) del exterior y de cada interior."""
+    if polygon is None or polygon.is_empty:
+        return
+    yield list(polygon.exterior.coords)
+    for inter in polygon.interiors:
+        yield list(inter.coords)
+
+
+def _undirected_segment_key(x1, y1, x2, y2, ndigits: int = 4):
+    """Clave canónica de segmento no orientado (coordenadas redondeadas)."""
+
+    def rp(x, y):
+        return (round(float(x), ndigits), round(float(y), ndigits))
+
+    a, b = rp(x1, y1), rp(x2, y2)
+    return (a, b) if a <= b else (b, a)
+
+
+def _segment_key_snapped(x1, y1, x2, y2, snap_mm: float):
+    """Clave no orientada con extremos cuantizados a rejilla ``snap_mm`` (mm).
+
+    Agrupa aristas casi coincidentes entre polígonos IFC (micro-gaps) sin fundir muros
+    separados por más de ~snap_mm/2 en promedio por vértice.
+    """
+    if snap_mm is None or float(snap_mm) <= 0:
+        return _undirected_segment_key(x1, y1, x2, y2, ndigits=4)
+    inv = 1.0 / float(snap_mm)
+
+    def cell(x, y):
+        return (int(round(float(x) * inv)), int(round(float(y) * inv)))
+
+    a, b = cell(x1, y1), cell(x2, y2)
+    return (a, b) if a <= b else (b, a)
+
+
+def _snap_vertex_xy(x, y, snap_mm):
+    """Cuantiza un vértice a rejilla mm (coherente con contornos IFC)."""
+    if snap_mm is None or float(snap_mm) <= 0:
+        return float(x), float(y)
+    q = float(snap_mm)
+    return round(float(x) / q) * q, round(float(y) / q) * q
+
+
+def _collect_outline_linestrings(polys, snap_mm=0.05, min_len=1e-9):
+    """Todas las aristas de borde como LineString de dos puntos (sin fusionar aún)."""
+    lines = []
+    min_len_sq = min_len * min_len
+    for poly in polys:
+        if poly is None or poly.is_empty:
+            continue
+        try:
+            if float(poly.area) <= 0:
+                continue
+        except Exception:
+            continue
+        for ring in _polygon_rings_xy(poly):
+            for i in range(len(ring) - 1):
+                x1, y1 = _snap_vertex_xy(ring[i][0], ring[i][1], snap_mm)
+                x2, y2 = _snap_vertex_xy(ring[i + 1][0], ring[i + 1][1], snap_mm)
+                dx, dy = x2 - x1, y2 - y1
+                if dx * dx + dy * dy < min_len_sq:
+                    continue
+                lines.append(LineString([(x1, y1), (x2, y2)]))
+    return lines
+
+
+def _iter_linestring_pieces(geom):
+    """Recorre LineString / MultiLineString / GeometryCollection."""
+    if geom is None or getattr(geom, "is_empty", True):
+        return
+    gt = geom.geom_type
+    if gt == "LineString":
+        if geom.length > 1e-12:
+            yield geom
+    elif gt == "MultiLineString":
+        for g in geom.geoms:
+            yield from _iter_linestring_pieces(g)
+    elif gt == "GeometryCollection":
+        for g in geom.geoms:
+            yield from _iter_linestring_pieces(g)
+
+
+def _dedupe_atomic_segments_from_line_geom(geom, snap_mm):
+    """Parte cadenas en segmentos 2 puntos y elimina duplicados no orientados (post ``unary_union``).
+
+    ``unary_union`` en líneas puede dejar dos copias colineales del mismo tramo (p. ej. arista
+    compartida entre dos rectángulos); esto las reduce a una antes del ``linemerge`` final.
+    """
+    seen = {}
+    for ls in _iter_linestring_pieces(geom):
+        coords = list(ls.coords)
+        for i in range(len(coords) - 1):
+            x1, y1 = coords[i][0], coords[i][1]
+            x2, y2 = coords[i + 1][0], coords[i + 1][1]
+            key = _segment_key_snapped(x1, y1, x2, y2, snap_mm)
+            if key not in seen:
+                seen[key] = LineString([(x1, y1), (x2, y2)])
+    return list(seen.values())
+
+
+def _merged_wall_outline_geometry(polys, snap_mm=0.05, min_len=1e-9):
+    """Fusiona aristas de todos los muros: ``unary_union`` (colineales / parciales) + dedupe atómico + ``linemerge``.
+
+    Resuelve T y L donde un muro aporta arista larga y otro subtramo colineal (misma recta),
+    y el caso de dos rectángulos adyacentes donde ``unary_union`` deja la arista interior duplicada.
+    """
+    raw = _collect_outline_linestrings(polys, snap_mm=snap_mm, min_len=min_len)
+    if not raw:
+        return None
+    try:
+        mls = MultiLineString(raw)
+        if mls.is_empty:
+            return None
+    except Exception:
+        return None
+    try:
+        fused = unary_union(mls)
+    except Exception:
+        fused = mls
+    if fused is None or getattr(fused, "is_empty", True):
+        return None
+    atomic_unique = _dedupe_atomic_segments_from_line_geom(fused, snap_mm)
+    if not atomic_unique:
+        return None
+    try:
+        mls2 = MultiLineString(atomic_unique)
+        merged = linemerge(mls2)
+    except Exception:
+        merged = fused
+    if merged is None or getattr(merged, "is_empty", True):
+        return None
+    return merged
+
+
+def _unique_outline_segments_from_polygons(
+    polys, snap_mm: float = 0.05, min_len: float = 1e-9
+):
+    """Descompone la red fusionada en segmentos consecutivos (útil para tests y depuración).
+
+    Tras ``unary_union`` + ``linemerge``, el contorno es una o varias polilíneas; cada arista
+    poligonal se devuelve como ``(x1,y1,x2,y2)``.
+    """
+    geom = _merged_wall_outline_geometry(polys, snap_mm=snap_mm, min_len=min_len)
+    if geom is None:
+        return []
+    out = []
+    for ls in _iter_linemerge_chains(geom):
+        c = list(ls.coords)
+        for i in range(len(c) - 1):
+            out.append((c[i][0], c[i][1], c[i + 1][0], c[i + 1][1]))
+    return out
+
+
+def _iter_linemerge_chains(merged):
+    """Produce LineStrings no vacíos a partir del resultado de linemerge."""
+    if merged is None or getattr(merged, "is_empty", True):
+        return
+    gt = merged.geom_type
+    if gt == "LineString":
+        if merged.length > 1e-12:
+            yield merged
+    elif gt == "MultiLineString":
+        for ls in merged.geoms:
+            yield from _iter_linemerge_chains(ls)
+    elif gt == "GeometryCollection":
+        for g in merged.geoms:
+            yield from _iter_linemerge_chains(g)
+    elif gt == "Point":
+        return
+
+
 def _append_fill_from_intersection(new_fill, inter):
     """Añade LineString(s) desde el resultado de line.intersection(polígono)."""
     if inter is None or getattr(inter, "is_empty", True):
@@ -582,12 +754,25 @@ def _dedupe_wall_fill_overlap(layer_polygons):
     return out
 
 
-def _inject_unified_rect_wall_outlines(layer_polygons, step=0.1):
-    """Añade contornos desde ``unary_union`` de muros rectos y omite perímetro por muro.
+def _inject_unified_rect_wall_outlines(
+    layer_polygons,
+    step=0.1,
+    unify_outline_eps=0.01,
+    outline_edge_snap_mm=0.05,
+):
+    """Contorno de muros rectos por **aristas únicas**, sin ``exterior`` de ``unary_union``.
 
-    El relleno por muro no se recalcula. Cada ``IfcWall`` recto pasa a ``skip_outline``;
-    los perímetros compartidos entre muros dejan de duplicarse en el G-code de contorno.
+    Recolecta todas las aristas de borde, ``unary_union`` para fundir tramos colineales
+    parciales (T, L: arista larga + corta en la misma recta) y ``linemerge`` en cadenas.
+    Así se evita doble extrusión sin perder el contorno interior que elimina solo el
+    ``exterior`` de ``unary_union`` sobre polígonos.
+
+    El relleno por muro no se altera. Cada ``IfcWall`` recto queda con ``skip_outline``.
+    ``unify_outline_eps`` se conserva en la firma por compatibilidad; ya no se usa.
+    ``outline_edge_snap_mm`` cuantiza vértices antes de la fusión (micro-gaps IFC).
     """
+    _ = unify_outline_eps
+    _ = step
     out = {}
     for z, items in layer_polygons.items():
         arc_items = [i for i in items if i.get("is_arc")]
@@ -618,47 +803,43 @@ def _inject_unified_rect_wall_outlines(layer_polygons, step=0.1):
             continue
 
         try:
-            U = unary_union(polys)
-            if not U.is_valid:
-                U = U.buffer(0)
+            merged = _merged_wall_outline_geometry(
+                polys, snap_mm=outline_edge_snap_mm
+            )
         except Exception:
             out[z] = items
             continue
 
-        if U.is_empty:
-            out[z] = items
-            continue
-
-        components = _polygons_from_union_geometry(U)
-        if not components:
+        if merged is None or getattr(merged, "is_empty", True):
             out[z] = items
             continue
 
         outline_items = []
-        for idx, poly in enumerate(components):
-            if poly.area <= (step**2) * 1e-3:
+        chain_idx = 0
+        for ls in _iter_linemerge_chains(merged):
+            coords = list(ls.coords)
+            if len(coords) < 2:
                 continue
-            try:
-                poly = normalize_polygon_bounds(poly)
-            except Exception:
-                pass
-            centroid = poly.centroid
-            boundary_points = list(poly.exterior.coords)
+            cx = sum(c[0] for c in coords) / len(coords)
+            cy = sum(c[1] for c in coords) / len(coords)
             outline_items.append(
                 {
-                    "polygon": poly,
-                    "type": "IfcWallOutlineUnion",
-                    "id": f"outline_union_{idx}",
+                    "polygon": None,
+                    "outline_polyline": True,
+                    "outline_chain_coords": coords,
+                    "type": "IfcWallOutlineEdges",
+                    "id": f"outline_edges_{chain_idx}",
                     "fill_lines": [],
                     "is_arc": False,
                     "outline_only": True,
                     "skip_outline": False,
-                    "centroid": Vec3(centroid.x, centroid.y, z),
+                    "centroid": Vec3(cx, cy, z),
                     "boundary_points": [
-                        Vec3(p[0], p[1], z) for p in boundary_points
+                        Vec3(float(c[0]), float(c[1]), z) for c in coords
                     ],
                 }
             )
+            chain_idx += 1
 
         if not outline_items:
             out[z] = items
@@ -823,6 +1004,8 @@ def extract_layer_polygons_with_fill(
     merge_walls_per_layer=False,
     dedupe_fill_overlap=True,
     unified_rect_wall_outlines=True,
+    unified_rect_outline_eps=0.01,
+    unified_rect_outline_snap_mm=0.05,
 ):
     """Extract polygons with fill information for layer processing optimization.
     
@@ -842,8 +1025,13 @@ def extract_layer_polygons_with_fill(
             **recalcula** relleno (legacy; no combinar con dedupe).
         dedupe_fill_overlap (bool): Si True (y merge False), mantiene el zigzag original
             y recorta ``fill_lines`` para no depositar dos veces en solapes entre muros.
-        unified_rect_wall_outlines (bool): Si True (y merge False), inyecta contorno desde
-            ``unary_union`` de muros rectos y marca ``skip_outline`` en cada muro (solo relleno).
+        unified_rect_wall_outlines (bool): Si True (y merge False), inyecta contorno por aristas
+            deduplicadas entre muros rectos y marca ``skip_outline`` en cada muro (solo relleno).
+        unified_rect_outline_eps (float): Reservado por compatibilidad; el contorno por aristas
+            ya no usa morfología buffer.
+        unified_rect_outline_snap_mm (float): mm; rejilla para deduplicar aristas compartidas
+            entre polígonos (mayor = más tolerancia a gaps numéricos; demasiado grande puede
+            fundir aristas distintas muy próximas).
         
     Returns:
         dict: Dictionary mapping Z-heights to lists of section data with polygons,
@@ -1069,6 +1257,11 @@ def extract_layer_polygons_with_fill(
         layer_polygons = _dedupe_wall_fill_overlap(layer_polygons)
 
     if unified_rect_wall_outlines and not merge_walls_per_layer:
-        layer_polygons = _inject_unified_rect_wall_outlines(layer_polygons, step=step)
+        layer_polygons = _inject_unified_rect_wall_outlines(
+            layer_polygons,
+            step=step,
+            unify_outline_eps=unified_rect_outline_eps,
+            outline_edge_snap_mm=unified_rect_outline_snap_mm,
+        )
 
     return layer_polygons
