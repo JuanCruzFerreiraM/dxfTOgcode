@@ -3,34 +3,28 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QIcon
-from src.gui.nav_bar import NavigationBar
-from src.gui.dxf_page import DXFPage
 from src.gui.ifc_page import IFCPage
 from src.gui.gcode_preview import Preview
+from src.gui.resource_paths import gui_icon_path
 
 
 class MainWindow(QMainWindow):
-    """Main application window containing navigation and content pages."""
-    
+    """Main application window (IFC workflow and G-code preview)."""
+
     def __init__(self):
-        """Initialize main window with navigation bar and content stack."""
+        """Initialize main window with IFC page and preview stack."""
         super().__init__()
-        
+
         self.setWindowTitle("Generador G-code")
-        self.setWindowIcon(QIcon("src/gui/icons/gcodegerator.ico"))
+        self.setWindowIcon(QIcon(gui_icon_path("gcodegerator.ico")))
         self.setMinimumSize(800, 600)
         self.resize(1200, 800)
-        self.actIndex = 0
 
-        self.nav_bar = NavigationBar(self.switch_page)
-       
         self.stack = QStackedWidget()
-        self.preview_page = Preview(parent_stack=self.stack, previous_index=self.actIndex)
-        self.stack.addWidget(DXFPage(self.stack, self.preview_page))
+        self.preview_page = Preview(parent_stack=self.stack, previous_index=0)
         self.stack.addWidget(IFCPage(self.stack, self.preview_page))
-        
         self.stack.addWidget(self.preview_page)
-        
+
         from PyQt6.QtWidgets import QFrame
 
         self.divider = QFrame()
@@ -43,8 +37,7 @@ class MainWindow(QMainWindow):
         content_layout = QVBoxLayout(content_wrapper)
         content_layout.setContentsMargins(10, 0, 0, 0)
         content_layout.setSpacing(0)
-        content_layout.addWidget(self.nav_bar)
-        content_layout.addSpacerItem(QSpacerItem(0, 10, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed))
+        content_layout.addSpacerItem(QSpacerItem(0, 8, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed))
         content_layout.addWidget(self.divider)
         content_layout.addWidget(self.stack)
         content_wrapper.setMaximumWidth(1200)
@@ -69,12 +62,3 @@ class MainWindow(QMainWindow):
                 background-color: #F5F7FA;
             }
         """)
-
-    def switch_page(self, index: int):
-        """Switch to specified page in the content stack.
-        
-        Args:
-            index (int): Page index to switch to
-        """
-        self.stack.setCurrentIndex(index)
-        self.actIndex = index

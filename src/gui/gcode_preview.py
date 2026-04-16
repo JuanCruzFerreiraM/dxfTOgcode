@@ -1,6 +1,7 @@
 from PyQt6.QtWidgets import QPushButton, QWidget, QHBoxLayout, QPlainTextEdit, QMessageBox, QFileDialog, QVBoxLayout
 from PyQt6.QtGui import QIcon
 from PyQt6.QtCore import Qt
+from src.gui.resource_paths import gui_icon_path
 
 
 class Preview(QWidget):
@@ -35,7 +36,7 @@ class Preview(QWidget):
         """)
         layout.addWidget(self.gcode_container)
         
-        self.save_as_button = QPushButton(QIcon("src/gui/icons/floppy-disk-solid.svg"), "Guardar", self)
+        self.save_as_button = QPushButton(QIcon(gui_icon_path("floppy-disk-solid.svg")), "Guardar", self)
         self.save_as_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self.save_as_button.setStyleSheet("""
         QPushButton {

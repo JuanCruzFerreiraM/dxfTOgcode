@@ -56,6 +56,10 @@ test_parser.py
 pps/
 test_inputs/
 
+# PyInstaller
+build/
+dist/
+
 # Debug outputs
 debug_log.txt
 debug_output.gcode

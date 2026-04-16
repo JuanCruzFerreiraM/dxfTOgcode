@@ -2,6 +2,8 @@ from PyQt6.QtWidgets import QWidget, QLabel, QPushButton, QHBoxLayout
 from PyQt6.QtGui import QIcon
 from PyQt6.QtCore import Qt, QSize
 
+from src.gui.resource_paths import gui_icon_path
+
 
 class CustomTitleBar(QWidget):
     """Custom window title bar widget with window controls.
@@ -26,7 +28,7 @@ class CustomTitleBar(QWidget):
         title.setStyleSheet("font-weight: bold; font-size: 16px; padding-left: 10px;")
 
         btn_close = QPushButton()
-        btn_close.setIcon(QIcon("src/gui/icons/xmark-solid.svg"))
+        btn_close.setIcon(QIcon(gui_icon_path("xmark-solid.svg")))
         btn_close.setIconSize(QSize(16, 16))
         btn_close.clicked.connect(self.parent.close)
         btn_close.setStyleSheet("""
@@ -48,7 +50,7 @@ class CustomTitleBar(QWidget):
 
         # Botón restaurar/maximizar
         self.btn_resize = QPushButton()
-        self.btn_resize.setIcon(QIcon("src/gui/icons/window-maximize-regular.svg"))
+        self.btn_resize.setIcon(QIcon(gui_icon_path("window-maximize-regular.svg")))
         self.btn_resize.setIconSize(QSize(16, 16))
         self.btn_resize.clicked.connect(self.toggle_max_restore)
         self.btn_resize.setStyleSheet("""
@@ -71,7 +73,7 @@ class CustomTitleBar(QWidget):
         # Botón minimizar
         btn_minimize = QPushButton()
         btn_minimize.setObjectName("MinimizeButton")
-        btn_minimize.setIcon(QIcon("src/gui/icons/window-minimize-solid.svg"))
+        btn_minimize.setIcon(QIcon(gui_icon_path("window-minimize-solid.svg")))
         btn_minimize.setIconSize(QSize(16, 16))
         btn_minimize.clicked.connect(lambda: self.parent.showMinimized())
         btn_minimize.setStyleSheet("""
@@ -109,7 +111,7 @@ class CustomTitleBar(QWidget):
         """
         if self.parent.isMaximized():
             self.parent.showNormal()
-            self.btn_resize.setIcon(QIcon("src/gui/icons/window-maximize-regular.svg"))
+            self.btn_resize.setIcon(QIcon(gui_icon_path("window-maximize-regular.svg")))
         else:
             self.parent.showMaximized()
-            self.btn_resize.setIcon(QIcon("src/gui/icons/window-restore-regular.svg"))
+            self.btn_resize.setIcon(QIcon(gui_icon_path("window-restore-regular.svg")))

@@ -1,3 +1,4 @@
+"""Legacy DXF/IFC tab bar; not wired by the main window (IFC-only UI)."""
 from PyQt6.QtWidgets import QWidget, QPushButton, QHBoxLayout
 from PyQt6.QtCore import Qt
 

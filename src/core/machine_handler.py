@@ -1,5 +1,6 @@
 import math
 from src.utils.geometry import distance
+from src.core.debug_config import DEBUG_LOG_ENABLED
 
 class LayerTimeError(Exception):
     """Exception raised when layer time exceeds maximum limit."""
@@ -8,14 +9,17 @@ class LayerTimeError(Exception):
         self.layer_time = layer_time
         self.t_max = t_max
         self.layer_number = layer_number
-        super().__init__(f"Layer {layer_number}: tiempo de capa ({layer_time:.2f} min) excede el límite máximo ({t_max:.2f} min)")
+        super().__init__(
+            f"Layer {layer_number}: layer time ({layer_time:.2f} min) exceeds "
+            f"maximum limit ({t_max:.2f} min)"
+        )
 
 
 class MachineHandler:
     """Handles G-code generation for 3D printer movements and operations."""
     
     def __init__(self, x=0, y=0, z=0, f=2500, fG0=2500, e=0, layer_thick=1, z_safe=20.0,
-                 start_point=None, start_description="No especificado"):
+                 start_point=None, start_description="Not specified"):
         """Initialize MachineHandler.
         
         Args:
@@ -28,7 +32,6 @@ class MachineHandler:
             start_point: Tuple (x, y) with the starting point coordinates
             start_description: Human-readable description of the starting corner
         """
-        # Construir header con información del punto de inicio
         start_info = ""
         if start_point:
             start_info = (
@@ -167,11 +170,18 @@ class MachineHandler:
         elif layer_time < t_min and self.z != max_height:
             dif = (t_min - layer_time) * 60
             self.g_code += f'G4 S{round(dif)} ;Wait till settle time\n'
-            print(f"Layer {i}: tiempo ajustado de {layer_time:.2f}min a {t_min:.2f}min")
-       
+            if DEBUG_LOG_ENABLED:
+                print(
+                    f"Layer {i}: time adjusted from {layer_time:.2f} min to {t_min:.2f} min"
+                )
+
         if self.z == max_height:
             self.g_code += ';End of file\n'
-            total_time = (self.total_g0 / self.fG0) + (self.total_g1 / self.f)
-            print(f'distancia g0 = {self.total_g0} distancia g1 = {self.total_g1}')
-            print(f'TIME G0 = {self.total_g0 / self.fG0:.2f} TIME G1 = {self.total_g1 / self.f:.2f}')
-            print(f'TOTAL TIME = {total_time:.2f} minutes')
+            if DEBUG_LOG_ENABLED:
+                total_time = (self.total_g0 / self.fG0) + (self.total_g1 / self.f)
+                print(f"G0 distance = {self.total_g0} G1 distance = {self.total_g1}")
+                print(
+                    f"TIME G0 = {self.total_g0 / self.fG0:.2f} "
+                    f"TIME G1 = {self.total_g1 / self.f:.2f}"
+                )
+                print(f"TOTAL TIME = {total_time:.2f} minutes")

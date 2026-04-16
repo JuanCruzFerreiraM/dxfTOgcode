@@ -5,6 +5,8 @@ import trimesh
 import numpy as np
 import math
 
+from src.core.debug_config import DEBUG_LOG_ENABLED
+
 
 def extract_trim_info(trim_element, transformation_matrix, local_center, radius):
     """
@@ -24,9 +26,8 @@ def extract_trim_info(trim_element, transformation_matrix, local_center, radius)
     Returns:
         numpy.ndarray: The global coordinates of the trim point [x, y, z].
     """   
-    angle = 0    
-    for item in trim_element:    
-        print(item, item.is_a())
+    angle = 0
+    for item in trim_element:
         if isinstance(item, (float, int)) or item.is_a('IfcParameterValue'):
             if item.is_a('IfcParameterValue'):
                 item = item.wrappedValue
@@ -84,7 +85,7 @@ def extract_arc_info(element, transformation_matrix):
         
     if not extrusion: return None
     
-    height = extrusion.Depth #Altura total en Z
+    height = extrusion.Depth
     
     profile = extrusion.SweptArea
     if not profile.is_a("IfcArbitraryClosedProfileDef"): return None
@@ -273,13 +274,15 @@ def ifc_parser(file_path):
 
     meshes_data = []
     allowed_types = {"IfcWall", "IfcWallStandardCase"}
-    
-    # Debug: escribir a archivo
-    debug_lines = []
-    debug_lines.append("=" * 60)
-    debug_lines.append("IFC PARSER DEBUG OUTPUT")
-    debug_lines.append("=" * 60)
-    
+
+    debug_lines = None
+    if DEBUG_LOG_ENABLED:
+        debug_lines = [
+            "=" * 60,
+            "IFC PARSER DEBUG OUTPUT",
+            "=" * 60,
+        ]
+
     arc_detected_count = 0
     arc_not_detected_count = 0
 
@@ -299,15 +302,17 @@ def ifc_parser(file_path):
             
             curve_wall = extract_arc_info(element, transform_matrix)
             
-            if curve_wall is not None: 
+            if curve_wall is not None:
                 meshes_data.append(curve_wall)
                 arc_detected_count += 1
-                debug_lines.append(f"✓ Arc detectado: ID={element.id()}, Type={element.is_a()}")
-                
+                if debug_lines is not None:
+                    debug_lines.append(
+                        f"Arc detected: ID={element.id()}, Type={element.is_a()}"
+                    )
+
             else:
-                # Debug: intentar entender por qué no se detectó como arco
-                debug_msg = debug_why_not_arc(element)
-                debug_lines.append(debug_msg)
+                if debug_lines is not None:
+                    debug_lines.append(debug_why_not_arc(element))
                 arc_not_detected_count += 1
                 
                 shape = ifcopenshell.geom.create_shape(settings, element)
@@ -332,28 +337,31 @@ def ifc_parser(file_path):
                 meshes_data.append(mesh_info)
 
         except Exception as e:
-            debug_lines.append(f"ERROR procesando {element.GlobalId}: {e}")
+            if debug_lines is not None:
+                debug_lines.append(f"ERROR processing {element.GlobalId}: {e}")
 
-    debug_lines.append("")
-    debug_lines.append(f"RESUMEN: {arc_detected_count} arcos detectados, {arc_not_detected_count} elementos procesados como mesh")
-    
-    # Escribir debug a archivo
-    with open("ifc_parser_debug.txt", "w", encoding="utf-8") as f:
-        f.write("\n".join(debug_lines))
-    
-    print(f"[IFC PARSER] Debug guardado en ifc_parser_debug.txt")
-    print(f"[IFC PARSER] {arc_detected_count} arcos, {arc_not_detected_count} meshes")
+    if debug_lines is not None:
+        debug_lines.append("")
+        debug_lines.append(
+            f"SUMMARY: {arc_detected_count} arc(s), "
+            f"{arc_not_detected_count} element(s) as mesh"
+        )
+        with open("ifc_parser_debug.txt", "w", encoding="utf-8") as f:
+            f.write("\n".join(debug_lines))
+        print("[IFC PARSER] Debug written to ifc_parser_debug.txt")
+        print(
+            f"[IFC PARSER] {arc_detected_count} arc(s), {arc_not_detected_count} mesh(es)"
+        )
 
-    # Extraer puertas, ventanas y openings (huecos en muros) con extensión en Z para comandos por capa
     openings_data = _extract_openings_data(ifc_file, settings)
-    if openings_data:
-        print(f"[IFC PARSER] {len(openings_data)} opening(s)/puerta(s)/ventana(s) detectados")
+    if openings_data and DEBUG_LOG_ENABLED:
+        print(f"[IFC PARSER] {len(openings_data)} opening(s)/door(s)/window(s) detected")
     
     return meshes_data, openings_data
 
 
 def debug_why_not_arc(element):
-    """Debug function to understand why an element wasn't detected as arc."""
+    """Explain why an IFC wall was not classified as arc geometry (debug text)."""
     element_id = element.id()
     element_type = element.is_a()
     

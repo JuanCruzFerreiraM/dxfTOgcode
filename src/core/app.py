@@ -13,14 +13,11 @@ import numpy as np
 import pprint
 from src.core.ifc.parameter_generator import extract_layer_polygons_with_fill
 from src.utils.wall_overlap import collect_all_shared_edges, collect_all_wall_overlaps
-
-
-# Flag para habilitar debug log (cambiar a False en producción)
-DEBUG_LOG_ENABLED = True
+from src.core.debug_config import DEBUG_LOG_ENABLED
 
 
 def write_debug_log(sections, meshes, polygon_data, log_filename="debug_log.txt"):
-    """Escribe información de debug a un archivo de log."""
+    """Write IFC pipeline debug dump to a text file (only when DEBUG_LOG_ENABLED)."""
     if not DEBUG_LOG_ENABLED:
         return
     
@@ -36,17 +33,15 @@ def write_debug_log(sections, meshes, polygon_data, log_filename="debug_log.txt"
             pprint.pprint(sections, stream=log_file)
             log_file.write("\n")
             
-            # Meshes del slicer
             log_file.write("[2] Slicer - Meshes/Slices:\n")
             log_file.write("-"*40 + "\n")
             for i, mesh_slice in enumerate(meshes):
                 log_file.write(f"Slice {i}: Z={mesh_slice.get('z')}, Type={mesh_slice.get('type')}\n")
                 if 'sections' in mesh_slice:
-                    log_file.write(f"  Secciones: {len(mesh_slice['sections'])}\n")
+                    log_file.write(f"  Sections: {len(mesh_slice['sections'])}\n")
                     pprint.pprint(mesh_slice['sections'], stream=log_file)
             log_file.write("\n")
             
-            # Polygon data
             log_file.write("[3] Parameter Generator - Polygon Data:\n")
             log_file.write("-"*40 + "\n")
             for z, polys in polygon_data.items():
@@ -54,7 +49,7 @@ def write_debug_log(sections, meshes, polygon_data, log_filename="debug_log.txt"
                 for poly in polys:
                     log_file.write(f"  - Type: {poly.get('type')}, ID: {poly.get('id')}\n")
                     if poly.get('is_arc'):
-                        log_file.write(f"    Arc Data:\n")
+                        log_file.write("    Arc Data:\n")
                         pprint.pprint(poly.get('arc_data'), stream=log_file)
                         log_file.write(f"    Fill lines count: {len(poly.get('fill_lines', []))}\n")
                         if poly.get('fill_lines'):
@@ -63,9 +58,11 @@ def write_debug_log(sections, meshes, polygon_data, log_filename="debug_log.txt"
                     if poly.get('polygon'):
                         log_file.write(f"    Polygon bounds: {poly['polygon'].bounds}\n")
             
-        print(f"[Debug] Log guardado en: {log_filename}")
+        if DEBUG_LOG_ENABLED:
+            print(f"[Debug] Log written to: {log_filename}")
     except Exception as e:
-        print(f"[Debug] Error escribiendo log: {e}")
+        if DEBUG_LOG_ENABLED:
+            print(f"[Debug] Error writing log: {e}")
 
 
 def write_openings_debug_log(
@@ -76,7 +73,7 @@ def write_openings_debug_log(
     eps,
     log_filename="ifc_openings_debug.txt",
 ):
-    """Escribe diagnóstico de aberturas vs capas Z a un archivo para análisis offline."""
+    """Write opening vs layer Z diagnostic to a file (offline analysis; debug only)."""
     if not DEBUG_LOG_ENABLED:
         return
     try:
@@ -160,9 +157,11 @@ def write_openings_debug_log(
                 "alineación z_max de aberturas con alturas de capa del slicer.\n"
             )
 
-        print(f"[Debug] Diagnóstico aberturas guardado en: {log_filename}")
+        if DEBUG_LOG_ENABLED:
+            print(f"[Debug] Openings diagnostic written to: {log_filename}")
     except Exception as e:
-        print(f"[Debug] Error escribiendo ifc_openings_debug: {e}")
+        if DEBUG_LOG_ENABLED:
+            print(f"[Debug] Error writing ifc_openings_debug: {e}")
 
 
 def write_wall_overlap_debug(
@@ -171,7 +170,7 @@ def write_wall_overlap_debug(
     log_filename="ifc_wall_overlap_debug.txt",
     min_edge_length_mm=0.1,
 ):
-    """Detecta solape de área y bordes/aristas compartidos entre muros por capa."""
+    """Detect wall overlap and shared edges per layer (debug dump file)."""
     if not DEBUG_LOG_ENABLED:
         return
     try:
@@ -351,16 +350,16 @@ def ifc_script(path, e=0, layer_tick=0.0, feed_rate=0.0, feed_rate_g0=0.0, offse
         z_safe (float): Safe Z height for travel moves in mm
         start_corner (str): Starting corner - 'bottom_left', 'bottom_right', 
                            'top_left', 'top_right', or 'auto'
-        merge_walls_per_layer (bool): Legacy: fusionar muros y recalcular relleno.
-        dedupe_fill_overlap (bool): Recortar rellenos solapados sin recalcular zigzag.
-        unified_rect_wall_outlines (bool): Contorno desde unary_union por capa (sin merge legacy).
-        unified_rect_outline_eps (float): Ignorado (compatibilidad); contorno = aristas deduplicadas.
-        unified_rect_outline_snap_mm (float): mm; rejilla al fusionar aristas compartidas (IFC).
-        dedupe_outline_segments (bool): Experimental; True puede abrir contornos con varios
-            outline_only en la misma capa.
-        outline_dedupe_mm (float): Cuantización mm si dedupe_outline_segments es True.
-        route_options: instancia opcional de ``RouteOptimizeOptions`` (ver
-            ``src.utils.path_optimizer``); None = valores por defecto pensados para velocidad.
+        merge_walls_per_layer (bool): Legacy mode: merge walls per layer and recompute fill.
+        dedupe_fill_overlap (bool): Trim overlapping fill without full zigzag recompute.
+        unified_rect_wall_outlines (bool): Outline from unary_union per layer (non-legacy).
+        unified_rect_outline_eps (float): Ignored (compatibility); outline uses deduped edges.
+        unified_rect_outline_snap_mm (float): Grid snap (mm) when merging shared edges (IFC).
+        dedupe_outline_segments (bool): Experimental; True may drop valid outline segments
+            when several outline_only elements share a layer.
+        outline_dedupe_mm (float): Quantization (mm) when dedupe_outline_segments is True.
+        route_options: Optional ``RouteOptimizeOptions`` (see ``src.utils.path_optimizer``);
+            None uses defaults tuned for speed.
 
     Returns:
         dict: Dictionary with 'gcode', 'start_point', and 'start_description'
@@ -368,15 +367,14 @@ def ifc_script(path, e=0, layer_tick=0.0, feed_rate=0.0, feed_rate_g0=0.0, offse
     Raises:
         RuntimeError: If file processing, entity generation, or time limits fail
     """
-    print("[Inicio] Procesando archivo IFC...")
-    
     start = time.time()
     try:
         sections, openings_data = ifc_parser(path)
         meshes = slicer(sections, layer_tick)
     except Exception as ex:
         raise RuntimeError(f"Error al procesar el archivo IFC: {ex}") from ex
-    print(f"[Tiempo] IFC Parser + Slicer: {time.time() - start:.2f} segundos")
+    if DEBUG_LOG_ENABLED:
+        print(f"[Timing] IFC parser + slicer: {time.time() - start:.2f}s")
     
     start = time.time()
     polygon_data = extract_layer_polygons_with_fill(
@@ -392,32 +390,31 @@ def ifc_script(path, e=0, layer_tick=0.0, feed_rate=0.0, feed_rate_g0=0.0, offse
         unified_rect_outline_eps=unified_rect_outline_eps,
         unified_rect_outline_snap_mm=unified_rect_outline_snap_mm,
     )
-    print(f"[Tiempo] Extracción de polígonos y relleno: {time.time() - start:.2f} segundos")
-    if merge_walls_per_layer:
-        print(
-            "[Info] Muros fusionados por capa (unary_union) y relleno recalculado (modo legacy)."
-        )
-    else:
-        if dedupe_fill_overlap:
+    if DEBUG_LOG_ENABLED:
+        print(f"[Timing] Polygon extraction + fill: {time.time() - start:.2f}s")
+        if merge_walls_per_layer:
             print(
-                "[Info] Relleno: zigzag por muro; tramos en solape entre muros recortados al final."
+                "[Info] Walls merged per layer (unary_union) and fill recomputed (legacy)."
             )
-        if unified_rect_wall_outlines:
-            print(
-                "[Info] Contorno muros rectos: aristas únicas por capa (snap "
-                f"{unified_rect_outline_snap_mm} mm; T/escalones conservan perímetro interior)."
-            )
-            if dedupe_outline_segments:
+        else:
+            if dedupe_fill_overlap:
                 print(
-                    "[Warning] dedupe_outline_segments=True puede eliminar tramos válidos "
-                    f"de contorno (cuantización {outline_dedupe_mm} mm)."
+                    "[Info] Fill: per-wall zigzag; overlapping segments trimmed at end."
                 )
-    
-    # Escribir debug log
+            if unified_rect_wall_outlines:
+                print(
+                    "[Info] Rect wall outline: unique edges per layer (snap "
+                    f"{unified_rect_outline_snap_mm} mm)."
+                )
+                if dedupe_outline_segments:
+                    print(
+                        "[Warning] dedupe_outline_segments=True may remove valid outline "
+                        f"segments (quantize {outline_dedupe_mm} mm)."
+                    )
+
     write_debug_log(sections, meshes, polygon_data)
     write_wall_overlap_debug(polygon_data, step=step)
 
-    # Calcular bounding box del modelo para determinar punto de inicio
     min_x, min_y = float('inf'), float('inf')
     max_x, max_y = float('-inf'), float('-inf')
     
@@ -429,11 +426,9 @@ def ifc_script(path, e=0, layer_tick=0.0, feed_rate=0.0, feed_rate_g0=0.0, offse
                 max_x = max(max_x, bp.x)
                 max_y = max(max_y, bp.y)
     
-    # Si no hay datos, usar origen
     if min_x == float('inf'):
         min_x, min_y, max_x, max_y = 0, 0, 0, 0
     
-    # Definir esquinas del modelo
     corners = {
         'bottom_left': (min_x, min_y, "Inferior izquierda"),
         'bottom_right': (max_x, min_y, "Inferior derecha"),
@@ -441,9 +436,7 @@ def ifc_script(path, e=0, layer_tick=0.0, feed_rate=0.0, feed_rate_g0=0.0, offse
         'top_right': (max_x, max_y, "Superior derecha"),
     }
     
-    # Determinar punto de inicio
     if start_corner == 'auto':
-        # Encontrar la esquina más cercana al centroide del primer polígono
         first_centroid = None
         for z in sorted(polygon_data.keys()):
             if polygon_data[z]:
@@ -465,7 +458,8 @@ def ifc_script(path, e=0, layer_tick=0.0, feed_rate=0.0, feed_rate_g0=0.0, offse
     corner_x, corner_y, corner_desc = corners[start_corner]
     initial_point = Vec3(corner_x, corner_y, 0)
     
-    print(f"[Info] Punto de inicio: X={corner_x:.2f}, Y={corner_y:.2f} ({corner_desc})")
+    if DEBUG_LOG_ENABLED:
+        print(f"[Info] Start point: X={corner_x:.2f}, Y={corner_y:.2f} ({corner_desc})")
     
     start = time.time()
     gcode_generator = GcodeGenerator()
@@ -477,16 +471,16 @@ def ifc_script(path, e=0, layer_tick=0.0, feed_rate=0.0, feed_rate_g0=0.0, offse
         outline_dedupe_mm=outline_dedupe_mm,
         route_options=route_options,
     )
-    print(f"[Tiempo] Optimización y generación de entidades: {time.time() - start:.2f} segundos")
+    if DEBUG_LOG_ENABLED:
+        print(f"[Timing] Entity optimization: {time.time() - start:.2f}s")
     
-    # Mostrar warnings de continuidad si los hay
     continuity_warnings = gcode_generator.get_continuity_warnings()
-    if continuity_warnings:
-        print(f"[Warning] Se detectaron {len(continuity_warnings)} problemas de continuidad:")
-        for w in continuity_warnings[:10]:  # Mostrar máximo 10
+    if continuity_warnings and DEBUG_LOG_ENABLED:
+        print(f"[Warning] {len(continuity_warnings)} continuity issue(s):")
+        for w in continuity_warnings[:10]:
             print(f"  {w}")
         if len(continuity_warnings) > 10:
-            print(f"  ... y {len(continuity_warnings) - 10} más")
+            print(f"  ... and {len(continuity_warnings) - 10} more")
     
     layer_entities = defaultdict(list)
     for entity in entities:
@@ -497,7 +491,6 @@ def ifc_script(path, e=0, layer_tick=0.0, feed_rate=0.0, feed_rate_g0=0.0, offse
     layer_amount = len(z_values)
     layer_height_m = layer_tick / 1000.0
 
-    # Tolerancia numérica para comparación z_max con alturas de capa (metros)
     eps = 1e-6
     openings_ending = {
         z: [o for o in openings_data
@@ -514,14 +507,13 @@ def ifc_script(path, e=0, layer_tick=0.0, feed_rate=0.0, feed_rate_g0=0.0, offse
         log_filename="ifc_openings_debug.txt",
     )
     layers_with_openings = sum(1 for olist in openings_ending.values() if olist)
-    print(
-        f"[Info] Aberturas: {len(openings_data)} detectada(s), "
-        f"{layers_with_openings} capa(s) con comentario de finalización "
-        f"(detalle en ifc_openings_debug.txt)"
-    )
-
-    print(f"[Info] Total de capas generadas: {layer_amount}")
-    print(f"[Info] Total de entidades generadas: {len(entities)}")
+    if DEBUG_LOG_ENABLED:
+        print(
+            f"[Info] Openings: {len(openings_data)} detected, "
+            f"{layers_with_openings} layer(s) with end-of-opening comments "
+            f"(see ifc_openings_debug.txt when debug enabled)"
+        )
+        print(f"[Info] Layers: {layer_amount}, entities: {len(entities)}")
 
     start = time.time()
     machine = MachineHandler(
@@ -542,8 +534,9 @@ def ifc_script(path, e=0, layer_tick=0.0, feed_rate=0.0, feed_rate_g0=0.0, offse
         if error_flag: 
             break
     
-    print(f"[Tiempo] Generación de G-code: {time.time() - start:.2f} segundos")
-    print("[Fin] Archivo G-code generado")
+    if DEBUG_LOG_ENABLED:
+        print(f"[Timing] G-code generation: {time.time() - start:.2f}s")
+        print("[Done] G-code generated")
     
     return {
         'gcode': machine.g_code,

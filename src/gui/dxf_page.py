@@ -5,8 +5,8 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtGui import QIcon
 from PyQt6.QtCore import Qt
 from src.core.app import dxf_script
+from src.gui.resource_paths import gui_icon_path
 from src.core.dxf.dxf_parser import FileError, UnsupportedEntityError
-import traceback
 
 
 class DXFPage(QWidget):
@@ -35,7 +35,7 @@ class DXFPage(QWidget):
         self.form_input.textChanged.connect(lambda path: setattr(self, 'path', path))
         form_layout.addWidget(self.form_input)
         
-        form_button = QPushButton(QIcon("src/gui/icons/folder-open-regular.svg"), "", self)
+        form_button = QPushButton(QIcon(gui_icon_path("folder-open-regular.svg")), "", self)
         form_button.clicked.connect(self.open_file)
         form_button.setStyleSheet("""
             QPushButton:hover {
@@ -213,7 +213,7 @@ class DXFPage(QWidget):
         try: 
             gcode = dxf_script(self.form_input.text(), self.extruction.value(), self.layerThickness.value() ,self.layers.value(), self.feedRate.value(), self.feedRateG0.value())
             self.parent_preview.setGcode(gcode)
-            self.parent_stack.setCurrentIndex(2)
+            self.parent_stack.setCurrentIndex(1)
         except (FileError, UnsupportedEntityError, RuntimeError) as e:
             QMessageBox.critical(self, "Error", str(e))
         except Exception as e:

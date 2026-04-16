@@ -8,24 +8,25 @@ from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal
 from src.core.app import ifc_script
 from src.core.dxf.dxf_parser import FileError, UnsupportedEntityError
 from src.core.machine_handler import LayerTimeError
-import traceback
+from src.gui.resource_paths import gui_icon_path
+import logging
+
+logger = logging.getLogger(__name__)
 
 
-# ComboBox personalizado que ignora la rueda del mouse
 class NoWheelComboBox(QComboBox):
     def wheelEvent(self, event):
         event.ignore()
 
 
-# SpinBox personalizado que ignora la rueda del mouse
 class NoWheelDoubleSpinBox(QDoubleSpinBox):
     def wheelEvent(self, event):
-        # Ignorar completamente el evento de la rueda
         event.ignore()
 
 
-# Worker en un hilo separado para ejecutar ifc_script sin bloquear la UI
 class GcodeWorker(QThread):
+    """Background worker that runs ``ifc_script`` without blocking the UI."""
+
     finished = pyqtSignal(object, object)
 
     def __init__(self, params):
@@ -37,22 +38,24 @@ class GcodeWorker(QThread):
             gcode = ifc_script(**self.params)
             self.finished.emit(gcode, None)
         except Exception as e:
-            # Log completo del error para debug
-            print("\n" + "="*60)
-            print("ERROR EN GENERACIÓN DE GCODE:")
-            print("="*60)
-            traceback.print_exc()
-            print("="*60 + "\n")
+            logger.exception("G-code generation failed")
             self.finished.emit(None, e)
 
 
 class IFCPage(QWidget):
+    """IFC file parameters and G-code generation page."""
+
     def __init__(self, parent_stack, parent_preview):
+        """Attach IFC form to the stacked layout and preview widget.
+
+        Args:
+            parent_stack (QStackedWidget): Stack containing this page and preview.
+            parent_preview (Preview): Widget used to show and save G-code.
+        """
         super().__init__()
         self.parent_stack = parent_stack
         self.parent_preview = parent_preview
 
-        # Scroll principal
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setStyleSheet("""
@@ -93,7 +96,7 @@ class IFCPage(QWidget):
         self.form_input.textChanged.connect(lambda path: setattr(self, 'path', path))
         form_layout.addWidget(self.form_input)
 
-        form_button = QPushButton(QIcon("src/gui/icons/folder-open-regular.svg"), "", self)
+        form_button = QPushButton(QIcon(gui_icon_path("folder-open-regular.svg")), "", self)
         form_button.clicked.connect(self.open_file)
         form_button.setStyleSheet("""
             QPushButton:hover {
@@ -329,7 +332,7 @@ class IFCPage(QWidget):
                 QMessageBox.information(
                     self,
                     "G-code generado exitosamente",
-                    f"📍 PUNTO DE INICIO REQUERIDO:\n\n"
+                    "PUNTO DE INICIO REQUERIDO:\n\n"
                     f"   X = {start_info.get('x', 0):.2f} mm\n"
                     f"   Y = {start_info.get('y', 0):.2f} mm\n\n"
                     f"   Esquina: {start_desc}\n\n"
@@ -340,7 +343,7 @@ class IFCPage(QWidget):
             gcode_text = gcode
 
         self.parent_preview.setGcode(gcode_text)
-        self.parent_stack.setCurrentIndex(2)
+        self.parent_stack.setCurrentIndex(1)
 
     def on_timeout(self):
         if self.worker.isRunning():

@@ -13,6 +13,7 @@ from ezdxf.math import Vec3
 import numpy as np
 import math
 from src.utils.geometry import calculate_centroid_from_trims
+from src.core.debug_config import DEBUG_LOG_ENABLED
 
 def generate_arc_fill(transform_section,offset,v_angle, debug_info=None):
     """Generate polar zigzag fill pattern for arc-shaped wall segments.
@@ -1152,17 +1153,24 @@ def extract_layer_polygons_with_fill(
         
         if (layer['type'] == 'Arc_Wall'):
             transform_section = convert_arc_to_mm(layer['sections'])
-            
-            # Debug info para arc fill
-            arc_debug_info = {}
-            fill_arc_lines, trim1, trim2 = generate_arc_fill(transform_section,offset,v_angle, debug_info=arc_debug_info)
-            
-            # Log debug info si está habilitado
-            import sys
-            print(f"\n=== ARC FILL DEBUG (ID: {layer['id']}, Z={z}) ===", file=sys.stderr)
-            for key, value in arc_debug_info.items():
-                print(f"  {key}: {value}", file=sys.stderr)
-            print(f"==========================================\n", file=sys.stderr)
+            if DEBUG_LOG_ENABLED:
+                arc_debug_info = {}
+                fill_arc_lines, trim1, trim2 = generate_arc_fill(
+                    transform_section, offset, v_angle, debug_info=arc_debug_info
+                )
+                import sys
+
+                print(
+                    f"\n=== ARC FILL DEBUG (ID: {layer['id']}, Z={z}) ===",
+                    file=sys.stderr,
+                )
+                for key, value in arc_debug_info.items():
+                    print(f"  {key}: {value}", file=sys.stderr)
+                print("==========================================\n", file=sys.stderr)
+            else:
+                fill_arc_lines, trim1, trim2 = generate_arc_fill(
+                    transform_section, offset, v_angle, debug_info=None
+                )
             
             trim1_vec = Vec3(trim1[0], trim1[1], z)
             trim2_vec = Vec3(trim2[0], trim2[1], z)
