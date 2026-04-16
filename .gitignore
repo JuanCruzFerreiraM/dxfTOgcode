@@ -47,11 +47,22 @@ yarn-error.log
 *.swo
 *.bak
 
-# GCode specific #
-*.gcode
-*.nc
-*.tap
-
 #Específicos 
 outputs/
 src/utils/generate_dxf.py
+capas_pdf/
+test_outputs/
+test_parser.py
+pps/
+test_inputs/
+
+# PyInstaller
+build/
+dist/
+
+# Debug outputs
+debug_log.txt
+debug_output.gcode
+ifc_parser_debug.txt
+ifc_openings_debug.txt
+ifc_wall_overlap_debug.txt

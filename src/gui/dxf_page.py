@@ -1,18 +1,29 @@
-from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
-QDoubleSpinBox, QSpinBox, QLineEdit, QPushButton, QFileDialog, QMessageBox)
+from PyQt6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
+    QSpinBox, QDoubleSpinBox, QFileDialog, QMessageBox, QScrollArea
+)
 from PyQt6.QtGui import QIcon
 from PyQt6.QtCore import Qt
 from src.core.app import dxf_script
-from src.core.dxf_parser import FileError, UnsupportedEntityError
+from src.gui.resource_paths import gui_icon_path
+from src.core.dxf.dxf_parser import FileError, UnsupportedEntityError
 
-class DXFPage (QWidget):
+
+class DXFPage(QWidget):
+    """Widget for DXF file processing and G-code generation configuration."""
+    
     def __init__(self, parent_stack, parent_preview):
+        """Initialize DXF page with parameter controls and file selection.
+        
+        Args:
+            parent_stack (QStackedWidget): Parent stack widget for navigation
+            parent_preview (Preview): Preview widget for G-code display
+        """
         super().__init__()
         self.parent_stack = parent_stack
         self.parent_preview = parent_preview
         layout = QVBoxLayout()
         
-        # Form para seleccionar un archivo dxf
         form_layout = QHBoxLayout()
         
         form_label = QLabel('Seleccione el archivo dxf que quiere transformar')
@@ -24,10 +35,9 @@ class DXFPage (QWidget):
         self.form_input.textChanged.connect(lambda path: setattr(self, 'path', path))
         form_layout.addWidget(self.form_input)
         
-        form_button = QPushButton(QIcon("src/gui/icons/folder-open-regular.svg"), "", self)
+        form_button = QPushButton(QIcon(gui_icon_path("folder-open-regular.svg")), "", self)
         form_button.clicked.connect(self.open_file)
         form_button.setStyleSheet("""
-            
             QPushButton:hover {
                 background-color: #D6D6D6;
             }
@@ -36,7 +46,6 @@ class DXFPage (QWidget):
         
         layout.addLayout(form_layout)
         
-        # Parámetro de extrusion
         extruction_label = QLabel('Configurar Extrusion (E)')
         extruction_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         layout.addWidget(extruction_label)
@@ -204,7 +213,7 @@ class DXFPage (QWidget):
         try: 
             gcode = dxf_script(self.form_input.text(), self.extruction.value(), self.layerThickness.value() ,self.layers.value(), self.feedRate.value(), self.feedRateG0.value())
             self.parent_preview.setGcode(gcode)
-            self.parent_stack.setCurrentIndex(2)
+            self.parent_stack.setCurrentIndex(1)
         except (FileError, UnsupportedEntityError, RuntimeError) as e:
             QMessageBox.critical(self, "Error", str(e))
         except Exception as e:

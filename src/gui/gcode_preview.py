@@ -1,16 +1,25 @@
 from PyQt6.QtWidgets import QPushButton, QWidget, QHBoxLayout, QPlainTextEdit, QMessageBox, QFileDialog, QVBoxLayout
 from PyQt6.QtGui import QIcon
 from PyQt6.QtCore import Qt
+from src.gui.resource_paths import gui_icon_path
 
 
 class Preview(QWidget):
+    """Widget for previewing and saving generated G-code."""
+    
     def __init__(self, parent_stack, previous_index):
+        """Initialize G-code preview widget with save functionality.
+        
+        Args:
+            parent_stack (QStackedWidget): Parent stack widget for navigation
+            previous_index (int): Index of previous page to return to
+        """
         super().__init__()
         
         self.gcode_str = None
         self.parent_stack = parent_stack
         self.previous_index = previous_index
-        btn_layout  = QHBoxLayout()
+        btn_layout = QHBoxLayout()
         layout = QVBoxLayout()
         
         self.gcode_container = QPlainTextEdit()
@@ -27,7 +36,7 @@ class Preview(QWidget):
         """)
         layout.addWidget(self.gcode_container)
         
-        self.save_as_button = QPushButton(QIcon("src/gui/icons/floppy-disk-solid.svg"),"Guardar",self)
+        self.save_as_button = QPushButton(QIcon(gui_icon_path("floppy-disk-solid.svg")), "Guardar", self)
         self.save_as_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self.save_as_button.setStyleSheet("""
         QPushButton {
@@ -45,9 +54,8 @@ class Preview(QWidget):
             }
             
             QPushButton:pressed {
-                background-color: #1A1A1A; /* Cambia el color al presionar */
+                background-color: #1A1A1A;
             }
-        
         """)
         self.save_as_button.clicked.connect(self.save_gcode)
         
@@ -70,7 +78,7 @@ class Preview(QWidget):
             }
             
             QPushButton:pressed {
-                background-color: #A93226; /* Cambia el color al presionar */
+                background-color: #A93226;
             }
         """)
         
@@ -89,7 +97,8 @@ class Preview(QWidget):
         """)
         
         
-    def  save_gcode(self):
+    def save_gcode(self):
+        """Save current G-code content to file with automatic extension handling."""
         if not hasattr(self, 'gcode_str') or not self.gcode_str:
             QMessageBox.warning(self, "Error", "No hay G-code para guardar.")
             return
@@ -97,17 +106,27 @@ class Preview(QWidget):
         file_path, _ = QFileDialog.getSaveFileName(
             self,
             "Guardar G-code",
+            "output.gcode",
             filter="Archivos G-code (*.gcode);;Todos los archivos (*)"
         )
 
         if file_path:
+            if not file_path.lower().endswith('.gcode'):
+                file_path += '.gcode'
+            
             try:
                 with open(file_path, "w") as file:
                     file.write(self.gcode_str)
                 QMessageBox.information(self, "Éxito", "Archivo guardado correctamente.")
+                self.parent_stack.setCurrentIndex(self.previous_index)
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"No se pudo guardar el archivo:\n{str(e)}")
 
-    def setGcode(self,text: str):
+    def setGcode(self, text: str):
+        """Set G-code content for preview display.
+        
+        Args:
+            text (str): G-code string to display
+        """
         self.gcode_container.setPlainText(text)
         self.gcode_str = text

@@ -1,6 +1,6 @@
 # Generador de G-Code para Impresoras 3D de Gran Escala
 
-[![Versión](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/JuanCruzFerreiraM/dxfTOgcode/releases)
+[![Versión](https://img.shields.io/badge/version-2.0.0-blue.svg)](https://github.com/JuanCruzFerreiraM/dxfTOgcode/releases)
 ![Build](https://img.shields.io/badge/build-passing-brightgreen)
 [![Licencia](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
@@ -8,12 +8,12 @@
 
 - ✅ Conversor de capas 2D — **completo**
 - ⏳ GUI para conversor 2D — **completo**
-- ⏳ Slicer STL — *pendiente*
+- ⏳ Slicer IFC — **completo**
 
 ## Roadmap
 
-- `v1.5.0`: Slicer funcional para STL
-- `v2.0.0`: GUI completa e integración total
+- `v1.0.0`: GUI para el conversor 2D
+- `v2.0.0`: GUI completa e integración total con IFC
 
 ## 🛠️ Instalación
 
@@ -45,7 +45,20 @@ venv\Scripts\activate         # En Windows
 pip install -r requirements.txt
 ```
 
+### Ejecutable Windows (PyInstaller, modo onedir)
+
+En un entorno con todas las dependencias instaladas:
+
+```bash
+pip install pyinstaller
+pyinstaller --clean CAMUNLP.spec
+```
+
+La aplicación queda en `dist/CAMUNLP/CAMUNLP.exe` junto con la carpeta interna de dependencias. No se usa modo onefile.
+
+Diagnóstico opcional del pipeline IFC: definir la variable de entorno `CAMUNLP_DEBUG=1` antes de arrancar.
+
 ## Licencia
 
-Este proyecto fue desarrollado por Juan Cruz Ferrreira, en representación del LEICI-UNLP.
+Este proyecto fue desarrollado por Juan Cruz Ferreira Monteiro, en representación del LEICI-UNLP.
 El código se publica bajo la Licencia MIT. Ver el archivo [LICENSE](LICENSE) para más detalles.

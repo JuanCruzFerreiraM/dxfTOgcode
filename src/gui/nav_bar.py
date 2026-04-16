@@ -1,8 +1,18 @@
+"""Legacy DXF/IFC tab bar; not wired by the main window (IFC-only UI)."""
 from PyQt6.QtWidgets import QWidget, QPushButton, QHBoxLayout
 from PyQt6.QtCore import Qt
 
+
 class NavigationBar(QWidget):
+    """Navigation bar widget for switching between application modes."""
+    
     def __init__(self, on_page_change, parent=None):
+        """Initialize navigation bar with mode switching buttons.
+        
+        Args:
+            on_page_change (callable): Callback function for page changes
+            parent (QWidget, optional): Parent widget
+        """
         super().__init__(parent)
 
         self.setFixedHeight(40)
@@ -13,7 +23,7 @@ class NavigationBar(QWidget):
         layout.setSpacing(0)
 
         self.btn_dxf = QPushButton("DXF")
-        self.btn_stl = QPushButton("STL")
+        self.btn_stl = QPushButton("IFC")
 
         for btn in [self.btn_dxf, self.btn_stl]:
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -35,9 +45,8 @@ class NavigationBar(QWidget):
             """)
             btn.setCheckable(True)
 
-        self.btn_dxf.setChecked(True)  # Vista inicial
+        self.btn_dxf.setChecked(True)
 
-        # Conexiones
         self.btn_dxf.clicked.connect(lambda: self.switch_mode(0, on_page_change))
         self.btn_stl.clicked.connect(lambda: self.switch_mode(1, on_page_change))
 
@@ -46,6 +55,12 @@ class NavigationBar(QWidget):
         layout.addStretch()
 
     def switch_mode(self, index, callback):
+        """Switch between navigation modes and trigger callback.
+        
+        Args:
+            index (int): Mode index (0 for DXF, 1 for IFC)
+            callback (callable): Function to call with the new index
+        """
         self.btn_dxf.setChecked(index == 0)
         self.btn_stl.setChecked(index == 1)
         callback(index)
